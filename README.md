@@ -11,8 +11,15 @@ uv sync
 ## Usage
 
 ```bash
-uv run web-crawler
+uv run web-crawler https://example.com
 ```
+
+### Configuration
+
+| Environment Variable | Default | Description |
+|---|---|---|
+| `CRAWLER_TIMEOUT` | `30.0` | HTTP request timeout in seconds |
+| `CRAWLER_USER_AGENT` | `web-crawler/0.1.0` | User-Agent header |
 
 ## Development
 
