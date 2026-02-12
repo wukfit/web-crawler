@@ -21,20 +21,23 @@ CLI (typer) → CrawlerService → HTTPClient (httpx) → HTMLParser (beautifuls
 - `HttpClient` Protocol + `HttpxClient` implementation
 - `HttpResponse` frozen dataclass (url, status_code, body, content_type)
 - `FetchError` custom exception for network/timeout errors
-- Async context manager, configurable timeout, User-Agent header
-- 7 unit tests using httpx MockTransport (no external mocks)
+- Async context manager, configurable timeout and user-agent via `HttpSettings` (pydantic-settings)
+- Env vars: `CRAWLER_TIMEOUT`, `CRAWLER_USER_AGENT`
+- 9 unit tests using httpx MockTransport + 3 settings tests
 
-### Step 3: Crawler Service (`crawler/service.py`)
+### Step 3: Crawler Service (`crawler/service.py`) — DONE
 - BFS URL queue with visited set
-- Async concurrency via `asyncio.Semaphore`
+- Async worker pool with `asyncio.Semaphore` for concurrency control
 - Wire parser + HTTP client
-- Return structured results (page URL → links found)
+- Graceful per-page error handling (FetchError, non-200, non-HTML)
+- try/finally for guaranteed cleanup of in_progress counter
+- 7 unit tests using FakeHttpClient (no external mocks)
 
-### Step 4: CLI Wiring (`cli.py`)
+### Step 4: CLI Wiring (`cli.py`) — DONE
 - Accept `url` argument via typer
-- Delegate to crawler service
-- Print results (page URL + discovered links)
-- Update existing CLI test, add integration test
+- `asyncio.run()` bridge from sync typer to async crawl
+- Print discovered URLs one per line to stdout
+- 2 unit tests (happy path with monkeypatched service, missing arg)
 
 ## Process per step
 

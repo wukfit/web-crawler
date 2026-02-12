@@ -87,3 +87,28 @@ The parser returns *all* same-domain URLs found on a page (images, PDFs, etc.) �
 
 ### Memory concern: large binary responses
 `response.text` materialises the entire body. For large binary files (e.g. 50MB PDF) this is wasteful. A future optimisation: HEAD request to check content-type before fetching the full body. Deferred — not a blocker for initial implementation.
+
+### Configurable settings via pydantic-settings
+`HttpSettings` reads `CRAWLER_TIMEOUT` and `CRAWLER_USER_AGENT` from environment variables with sensible defaults. `HttpxClient` accepts an optional `HttpSettings` instance — defaults to reading from env if not provided. Using `is not None` check (not `or`) to avoid truthiness ambiguity with pydantic models.
+
+## 2026-02-12: Crawler Service Implementation
+
+### Concurrency model: asyncio worker pool
+Multiple worker coroutines pull from an `asyncio.Queue`. An `asyncio.Semaphore` caps concurrent HTTP fetches. Workers exit when the queue is empty and `in_progress == 0`. This gives true parallelism on I/O-bound fetches while keeping the BFS traversal order.
+
+### Guaranteed cleanup with try/finally
+The `in_progress` counter and `done_event` signal coordinate worker lifecycle. All early exits (`FetchError`, non-200, non-HTML) use `continue` inside `async with semaphore`, with `try/finally` ensuring the counter always decrements. This eliminates duplicate cleanup blocks and prevents deadlock if the semaphore/worker ratio changes.
+
+### Dependency injection: caller owns the client
+`CrawlerService` receives an `HttpClient` via constructor — it does not create or close it. No `__aenter__`/`__aexit__` needed. The caller manages the client lifecycle, keeping ownership clear and avoiding double-close bugs.
+
+### Error isolation per page
+`FetchError` on one page does not abort the crawl. Non-200 and non-HTML responses are silently skipped. Only successfully fetched HTML pages appear in results. This matches expected crawler behaviour — partial results are more useful than a full abort.
+
+## 2026-02-12: CLI Wiring
+
+### asyncio.run bridge
+Typer is synchronous. The crawler is async. `asyncio.run(_crawl(url))` bridges the two. The async function creates the `HttpxClient` context manager, runs the crawl, then prints results. Simple and standard — no third-party async CLI libraries needed.
+
+### Output format: one URL per line
+Plain URLs to stdout, one per line. Easy to pipe to `wc -l`, `sort`, `grep`, or other Unix tools. No JSON or structured output — keep it simple for v1.
