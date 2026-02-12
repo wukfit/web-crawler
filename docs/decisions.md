@@ -17,7 +17,7 @@
 - Same author as FastAPI — natural upgrade path if we ever move from CLI to HTTP API
 - Built on click (the most popular Python CLI library)
 
-### HTTP Client: httpx (to be added)
+### HTTP Client: httpx
 - Modern async/sync HTTP client with requests-compatible API
 - HTTP/2 support out of the box
 - Swappable via Python Protocol (interface) — crawler never knows which HTTP library is underneath
@@ -70,3 +70,20 @@ Initially filtered `mailto:` and `javascript:` by prefix. Code review caught tha
 - Fragments stripped (same page, not a distinct resource)
 - Trailing slashes stripped (prevents duplicates like `/about` vs `/about/`)
 - Deduplication via `seen` set on normalised URLs
+
+## 2026-02-12: HTTP Client Implementation
+
+### Protocol-based abstraction
+`HttpClient` Protocol defines the contract (`fetch`, `close`). `HttpxClient` implements it. The crawler service depends on the Protocol, not the implementation — making it testable with httpx's built-in `MockTransport` (no external mocking libraries).
+
+### HttpResponse dataclass
+Frozen dataclass wrapping `url`, `status_code`, `body`, `content_type`. Avoids leaking httpx types through the architecture boundary. The `content_type` field enables the service layer to decide whether to parse a response for links (only `text/html`).
+
+### Error handling strategy
+Network/transport errors (`ConnectError`, `TimeoutException`) are caught and re-raised as `FetchError`. Non-success HTTP status codes (4xx, 5xx) are returned as normal responses — the caller decides how to handle them. Retry logic belongs in the service layer, not the HTTP client.
+
+### Crawlable vs reportable URLs
+The parser returns *all* same-domain URLs found on a page (images, PDFs, etc.) — these are reportable. The service layer determines which are *crawlable* by checking the response `content_type` after fetching. This matches the requirement: "print the URL and all URLs found on that page".
+
+### Memory concern: large binary responses
+`response.text` materialises the entire body. For large binary files (e.g. 50MB PDF) this is wasteful. A future optimisation: HEAD request to check content-type before fetching the full body. Deferred — not a blocker for initial implementation.

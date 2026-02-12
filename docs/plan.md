@@ -17,11 +17,12 @@ CLI (typer) → CrawlerService → HTTPClient (httpx) → HTMLParser (beautifuls
 - Input validation at module boundary, early return for empty HTML
 - 22 unit tests covering all behaviours
 
-### Step 2: HTTP Client (`http/client.py`)
-- Add `httpx` as dependency
-- Define a `Protocol` (interface) for the HTTP client
-- Implement async client: fetch page HTML, connection pooling, timeouts
-- Error handling (network errors, non-HTML responses, status codes)
+### Step 2: HTTP Client (`http/client.py`) — DONE
+- `HttpClient` Protocol + `HttpxClient` implementation
+- `HttpResponse` frozen dataclass (url, status_code, body, content_type)
+- `FetchError` custom exception for network/timeout errors
+- Async context manager, configurable timeout, User-Agent header
+- 7 unit tests using httpx MockTransport (no external mocks)
 
 ### Step 3: Crawler Service (`crawler/service.py`)
 - BFS URL queue with visited set
