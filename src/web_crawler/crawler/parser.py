@@ -5,13 +5,29 @@ from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
 
 
+def is_same_domain(url: str, base_url: str) -> bool:
+    """Check if url has the exact same hostname as base_url."""
+    return urlparse(url).hostname == urlparse(base_url).hostname
+
+
+def normalise_url(url: str) -> str:
+    """Strip fragment and trailing slash from a URL."""
+    parsed = urlparse(url)
+    return parsed._replace(fragment="").geturl().rstrip("/")
+
+
 def extract_links(html: str, base_url: str) -> list[str]:
     """Extract same-domain links from HTML, resolved to absolute URLs."""
-    base_parsed = urlparse(base_url)
-    soup = BeautifulSoup(html, "html.parser")
+    if not base_url:
+        raise ValueError("base_url must not be empty")
 
-    seen: set[str] = set()
     links: list[str] = []
+
+    if not html:
+        return links
+
+    soup = BeautifulSoup(html, "html.parser")
+    seen: set[str] = set()
 
     for anchor in soup.find_all("a", href=True):
         href = str(anchor["href"])
@@ -25,13 +41,10 @@ def extract_links(html: str, base_url: str) -> list[str]:
         if parsed.scheme not in ("http", "https"):
             continue
 
-        # Same domain only (exact match, no subdomains)
-        if parsed.hostname != base_parsed.hostname:
+        if not is_same_domain(resolved, base_url):
             continue
 
-        # Strip fragment, normalise trailing slash
-        normalised = parsed._replace(fragment="").geturl()
-        normalised = normalised.rstrip("/")
+        normalised = normalise_url(resolved)
 
         if normalised not in seen:
             seen.add(normalised)

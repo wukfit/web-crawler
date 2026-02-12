@@ -1,4 +1,6 @@
-from web_crawler.crawler.parser import extract_links
+import pytest
+
+from web_crawler.crawler.parser import extract_links, is_same_domain, normalise_url
 
 
 class TestExtractLinks:
@@ -74,6 +76,15 @@ class TestExtractLinks:
         result = extract_links(html, "https://example.com")
         assert result == []
 
+    def test_raises_on_empty_base_url(self):
+        html = '<html><body><a href="https://example.com">Link</a></body></html>'
+        with pytest.raises(ValueError, match="base_url"):
+            extract_links(html, "")
+
+    def test_returns_early_for_empty_html(self):
+        result = extract_links("", "https://example.com")
+        assert result == []
+
     def test_normalises_trailing_slash(self):
         html = """<html><body>
             <a href="https://example.com/about/">With slash</a>
@@ -82,3 +93,46 @@ class TestExtractLinks:
         result = extract_links(html, "https://example.com")
         # Both should resolve to the same URL
         assert len(result) == 1
+
+
+class TestIsSameDomain:
+    def test_same_domain(self):
+        assert (
+            is_same_domain("https://example.com/about", "https://example.com") is True
+        )
+
+    def test_different_domain(self):
+        assert is_same_domain("https://other.com/page", "https://example.com") is False
+
+    def test_subdomain(self):
+        assert (
+            is_same_domain("https://blog.example.com/post", "https://example.com")
+            is False
+        )
+
+    def test_same_domain_different_path(self):
+        assert (
+            is_same_domain("https://example.com/a/b/c", "https://example.com/x") is True
+        )
+
+
+class TestNormaliseUrl:
+    def test_strips_fragment(self):
+        assert (
+            normalise_url("https://example.com/about#section")
+            == "https://example.com/about"
+        )
+
+    def test_strips_trailing_slash(self):
+        assert (
+            normalise_url("https://example.com/about/") == "https://example.com/about"
+        )
+
+    def test_unchanged_when_already_normalised(self):
+        assert normalise_url("https://example.com/about") == "https://example.com/about"
+
+    def test_strips_both_fragment_and_trailing_slash(self):
+        assert (
+            normalise_url("https://example.com/about/#top")
+            == "https://example.com/about"
+        )

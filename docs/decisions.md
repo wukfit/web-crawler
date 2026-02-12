@@ -54,3 +54,19 @@ CLI (typer) → CrawlerService → HTTPClient (httpx) → HTMLParser (beautifuls
 - **http/client.py**: Infrastructure. HTTP requests, connection pooling, retry logic.
 
 Each layer depends only on the layer below it. The HTTP client is injectable, making the crawler testable without real HTTP calls.
+
+## 2026-02-12: Parser Implementation
+
+### Extracted helpers: `is_same_domain`, `normalise_url`
+Code review identified "what" comments explaining inline logic. Replaced with named functions that make `extract_links` read as a pipeline of named operations. Both helpers are independently testable.
+
+### Scheme filtering: allowlist over blocklist
+Initially filtered `mailto:` and `javascript:` by prefix. Code review caught that `tel:`, `ftp:`, `data:` etc. would slip through. Switched to allowlisting `http`/`https` on the resolved URL — more robust and future-proof.
+
+### Input validation: at module boundary only
+`extract_links` validates `base_url` (raises `ValueError` if empty) and short-circuits on empty `html` (avoids BeautifulSoup overhead at scale). Internal helpers (`is_same_domain`, `normalise_url`) do not validate — they're trusted internal functions called after the boundary check. If these helpers are later used outside `extract_links`, validation should be added at that point.
+
+### URL normalisation
+- Fragments stripped (same page, not a distinct resource)
+- Trailing slashes stripped (prevents duplicates like `/about` vs `/about/`)
+- Deduplication via `seen` set on normalised URLs
