@@ -5,6 +5,8 @@ from typing import Protocol, Self
 
 import httpx
 
+from web_crawler.http.settings import HttpSettings
+
 
 class FetchError(Exception):
     """Raised when an HTTP request fails due to network or timeout errors."""
@@ -29,12 +31,13 @@ class HttpxClient:
     def __init__(
         self,
         *,
-        timeout: float = 30.0,
+        settings: HttpSettings | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
+        resolved = settings if settings is not None else HttpSettings()
         self._client = httpx.AsyncClient(
-            timeout=timeout,
-            headers={"User-Agent": "web-crawler/0.1.0"},
+            timeout=resolved.timeout,
+            headers={"User-Agent": resolved.user_agent},
             transport=transport,
         )
 
