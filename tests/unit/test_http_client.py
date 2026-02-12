@@ -79,6 +79,12 @@ class TestHttpxClient:
         await client.close()
         assert client._client.is_closed
 
+    async def test_raises_on_empty_url(self):
+        transport = httpx.MockTransport(html_response)
+        async with HttpxClient(transport=transport) as client:
+            with pytest.raises(ValueError, match="url"):
+                await client.fetch("")
+
     async def test_works_as_async_context_manager(self):
         transport = httpx.MockTransport(html_response)
         async with HttpxClient(transport=transport) as client:

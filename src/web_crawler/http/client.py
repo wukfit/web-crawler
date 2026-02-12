@@ -39,6 +39,9 @@ class HttpxClient:
         )
 
     async def fetch(self, url: str) -> HttpResponse:
+        if not url:
+            raise ValueError("url must not be empty")
+
         try:
             response = await self._client.get(url)
         except httpx.HTTPError as exc:
