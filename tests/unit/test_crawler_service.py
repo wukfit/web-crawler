@@ -292,7 +292,11 @@ class TestCrawlerService:
         with caplog.at_level(logging.WARNING):
             [r async for r in service.crawl("https://example.com")]
 
-        assert any("https://example.com/broken" in r.message for r in caplog.records)
+        assert any(
+            "https://example.com/broken" in r.message
+            and "from https://example.com)" in r.message
+            for r in caplog.records
+        )
 
     async def test_logs_non_200_response(self, caplog):
         client = FakeHttpClient(
@@ -314,7 +318,9 @@ class TestCrawlerService:
             [r async for r in service.crawl("https://example.com")]
 
         assert any(
-            "404" in r.message and "https://example.com/gone" in r.message
+            "404" in r.message
+            and "https://example.com/gone" in r.message
+            and "from https://example.com," in r.message
             for r in caplog.records
         )
 

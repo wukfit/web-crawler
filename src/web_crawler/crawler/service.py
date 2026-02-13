@@ -53,20 +53,20 @@ class CrawlerService:
     async def crawl(self, start_url: str) -> AsyncIterator[CrawlerResult]:
         robots = await self._fetch_robots(start_url)
         visited: set[str] = set()
-        url_queue: asyncio.Queue[str] = asyncio.Queue()
+        url_queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
         result_queue: asyncio.Queue[CrawlerResult | None] = asyncio.Queue()
         semaphore = asyncio.Semaphore(self._max_concurrency)
         in_progress = 0
         done_event = asyncio.Event()
 
         visited.add(start_url)
-        await url_queue.put(start_url)
+        await url_queue.put((start_url, ""))
 
         async def worker() -> None:
             nonlocal in_progress
             while True:
                 try:
-                    url = url_queue.get_nowait()
+                    url, parent_url = url_queue.get_nowait()
                 except asyncio.QueueEmpty:
                     if in_progress == 0:
                         return
@@ -80,13 +80,19 @@ class CrawlerService:
                         try:
                             response = await self._client.fetch(url)
                         except FetchError as exc:
-                            logger.warning("Failed to fetch %s: %s", url, exc)
+                            logger.warning(
+                                "Failed to fetch %s (from %s): %s",
+                                url,
+                                parent_url,
+                                exc,
+                            )
                             continue
 
                         if response.status_code != 200:
                             logger.warning(
-                                "Skipping %s (HTTP %d)",
+                                "Skipping %s (from %s, HTTP %d)",
                                 url,
+                                parent_url,
                                 response.status_code,
                             )
                             continue
@@ -104,7 +110,7 @@ class CrawlerService:
                                 and robots.can_fetch(self._user_agent, link)
                             ):
                                 visited.add(link)
-                                await url_queue.put(link)
+                                await url_queue.put((link, url))
                 finally:
                     in_progress -= 1
                     done_event.set()
