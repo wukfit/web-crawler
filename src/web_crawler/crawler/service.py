@@ -7,15 +7,15 @@ from dataclasses import dataclass, field
 from urllib.parse import urlparse
 from urllib.robotparser import RobotFileParser
 
-from web_crawler.crawler.parser import extract_urls
+from web_crawler.crawler.parser import extract_urls, normalise_url
 from web_crawler.http.client import FetchError, HttpClient
 
 logger = logging.getLogger(__name__)
 
 
 def is_same_domain(url: str, base_url: str) -> bool:
-    """Check if url has the exact same hostname as base_url."""
-    return urlparse(url).hostname == urlparse(base_url).hostname
+    """Check if url has the exact same host and port as base_url."""
+    return urlparse(url).netloc == urlparse(base_url).netloc
 
 
 @dataclass(frozen=True)
@@ -59,6 +59,7 @@ class CrawlerService:
         in_progress = 0
         done_event = asyncio.Event()
 
+        start_url = normalise_url(start_url)
         visited.add(start_url)
         await url_queue.put((start_url, ""))
 
@@ -100,8 +101,16 @@ class CrawlerService:
                         if "text/html" not in response.content_type:
                             continue
 
-                        links = extract_urls(response.body, url)
-                        await result_queue.put(CrawlerResult(url=url, links=links))
+                        final_url = normalise_url(response.url)
+                        visited.add(final_url)
+
+                        if not is_same_domain(final_url, start_url):
+                            continue
+
+                        links = extract_urls(response.body, final_url)
+                        await result_queue.put(
+                            CrawlerResult(url=final_url, links=links)
+                        )
 
                         for link in links:
                             if (
@@ -110,7 +119,7 @@ class CrawlerService:
                                 and robots.can_fetch(self._user_agent, link)
                             ):
                                 visited.add(link)
-                                await url_queue.put((link, url))
+                                await url_queue.put((link, final_url))
                 finally:
                     in_progress -= 1
                     done_event.set()
