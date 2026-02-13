@@ -6,12 +6,16 @@ from bs4 import BeautifulSoup
 
 _TAG_ATTRS: dict[str, list[str]] = {
     "a": ["href"],
+    "area": ["href"],
+    "audio": ["src"],
+    "embed": ["src"],
+    "iframe": ["src"],
     "img": ["src"],
     "link": ["href"],
     "script": ["src"],
     "source": ["src"],
+    "track": ["src"],
     "video": ["src", "poster"],
-    "audio": ["src"],
 }
 
 

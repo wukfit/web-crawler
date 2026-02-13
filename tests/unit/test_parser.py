@@ -57,6 +57,26 @@ class TestExtractUrls:
             "https://example.com/app.js",
         }
 
+    def test_extracts_area_href(self):
+        html = '<html><body><map><area href="/region"></map></body></html>'
+        result = extract_urls(html, "https://example.com")
+        assert result == ["https://example.com/region"]
+
+    def test_extracts_iframe_src(self):
+        html = '<html><body><iframe src="/embed"></iframe></body></html>'
+        result = extract_urls(html, "https://example.com")
+        assert result == ["https://example.com/embed"]
+
+    def test_extracts_embed_src(self):
+        html = '<html><body><embed src="/widget.swf"></body></html>'
+        result = extract_urls(html, "https://example.com")
+        assert result == ["https://example.com/widget.swf"]
+
+    def test_extracts_track_src(self):
+        html = '<html><body><video><track src="/subs.vtt"></video></body></html>'
+        result = extract_urls(html, "https://example.com")
+        assert result == ["https://example.com/subs.vtt"]
+
     def test_returns_empty_list_when_no_urls(self):
         html = "<html><body><p>No links here</p></body></html>"
         result = extract_urls(html, "https://example.com")
