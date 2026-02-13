@@ -39,6 +39,7 @@ class HttpxClient:
             timeout=resolved.timeout,
             headers={"User-Agent": resolved.user_agent},
             follow_redirects=True,
+            http2=True,
             transport=transport,
         )
 
