@@ -58,9 +58,7 @@ class TestHttpxClient:
         async with make_client(transport) as client:
             await client.fetch("https://example.com")
 
-        assert "web-crawler" in captured_headers.get(
-            "user-agent", ""
-        ).lower()
+        assert "web-crawler" in captured_headers.get("user-agent", "").lower()
 
     async def test_custom_settings_applied(self):
         captured_headers: dict[str, str] = {}
@@ -69,9 +67,7 @@ class TestHttpxClient:
             captured_headers.update(dict(request.headers))
             return html_response(request)
 
-        custom = HttpSettings(
-            timeout=5.0, user_agent="custom-bot/1.0"
-        )
+        custom = HttpSettings(timeout=5.0, user_agent="custom-bot/1.0")
         transport = httpx.MockTransport(capture_headers)
         async with make_client(transport, custom) as client:
             await client.fetch("https://example.com")

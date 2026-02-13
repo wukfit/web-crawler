@@ -50,7 +50,7 @@ CLI (typer) → CrawlerService → HTTPClient (httpx) → HTMLParser (beautifuls
 
 - **cli.py**: Thin presentation layer. Parses args, delegates to service, formats output.
 - **crawler/service.py**: Orchestration. Manages URL queue, visited set, concurrency.
-- **crawler/parser.py**: Domain logic. Extracts links, resolves relative URLs, filters by domain.
+- **crawler/parser.py**: Domain logic. Extracts URLs from HTML, resolves relative URLs.
 - **http/client.py**: Infrastructure. HTTP requests, connection pooling, retry logic.
 
 Each layer depends only on the layer below it. The HTTP client is injectable, making the crawler testable without real HTTP calls.
@@ -112,3 +112,20 @@ Typer is synchronous. The crawler is async. `asyncio.run(_crawl(url))` bridges t
 
 ### Output format: one URL per line
 Plain URLs to stdout, one per line. Easy to pipe to `wc -l`, `sort`, `grep`, or other Unix tools. No JSON or structured output — keep it simple for v1.
+
+## 2026-02-12: Crawler Improvements
+
+### Parser: extract all resource URLs
+Renamed `extract_links` → `extract_urls`. Now extracts URLs from `<a href>`, `<img src>`, `<link href>`, `<script src>`, `<source src>`, `<video src>`, `<audio src>` via a `_TAG_ATTRS` mapping dict. Removed domain filtering from parser — it's crawl policy, not parsing logic.
+
+### Service: domain filtering moved from parser
+`is_same_domain` moved to the service layer. Parser returns all URLs found; service filters same-domain URLs for the crawl queue. `CrawlerResult.links` contains all URLs (including external) — matching the brief's "all the URLs it finds on that page".
+
+### Service: robots.txt compliance
+Fetches `{scheme}://{netloc}/robots.txt` before crawling. Uses stdlib `urllib.robotparser.RobotFileParser` to check `can_fetch(user_agent, url)` before adding URLs to the crawl queue. Graceful fallback: missing (404) or unreachable robots.txt → allow everything. Uses `netloc` (not `hostname`) to preserve ports. The `user_agent` parameter defaults to `"*"` (wildcard) and is wired from `HttpSettings.user_agent` in the CLI.
+
+### Service: stderr logging for skipped pages
+Uses Python `logging` module. `FetchError` and non-200 responses log `WARNING` to stderr. Non-HTML responses are silently skipped (expected for images/PDFs). CLI configures `logging.basicConfig` to stderr with `WARNING` level.
+
+### CLI: per-page grouped output
+Output format changed from flat URL list to per-page grouped output. Each page shows its URL followed by indented discovered URLs. No cross-page deduplication — matches the brief's "for each page... print the URL and all the URLs it finds".
