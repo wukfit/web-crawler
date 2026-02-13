@@ -129,3 +129,57 @@ Uses Python `logging` module. `FetchError` and non-200 responses log `WARNING` t
 
 ### CLI: per-page grouped output
 Output format changed from flat URL list to per-page grouped output. Each page shows its URL followed by indented discovered URLs. No cross-page deduplication — matches the brief's "for each page... print the URL and all the URLs it finds".
+
+### Service: streaming output via async generator
+Initially `crawl()` returned `list[CrawlerResult]` — the entire crawl had to finish before any output appeared. On real sites (e.g. books.toscrape.com with ~1000 pages) this meant ~60 seconds of silence. Changed to `AsyncIterator[CrawlerResult]` using a dual-queue pattern:
+
+- `url_queue` — URLs waiting to be fetched (workers consume)
+- `result_queue` — parsed results waiting to be yielded (caller consumes)
+- `None` sentinel signals all workers are done
+
+The CLI now uses `async for result in service.crawl(url)` and prints each page immediately. Workers continue discovering and fetching in the background while results stream to stdout.
+
+### Service: worker cancellation on unexpected errors
+`asyncio.gather` does **not** cancel sibling tasks when one raises an unhandled exception — they become orphaned coroutines. Added explicit `for t in worker_tasks: t.cancel()` in the `run_workers` `finally` block. This ensures all workers are cleaned up whether crawling completes normally or an unexpected error occurs.
+
+Found during code review — verified with a test using `asyncio.Event` synchronisation to confirm the slow worker actually receives `CancelledError`.
+
+### Parser: multi-attribute tag support
+Changed `_TAG_ATTRS` from `dict[str, str]` to `dict[str, list[str]]` to support tags with multiple URL-bearing attributes. Added `poster` for `<video>` (video thumbnail URL). The existing `seen` set handles deduplication when both attributes resolve to the same URL.
+
+## Limitations & Trade-offs
+
+### Bot blocking
+Some websites (e.g. StackOverflow, many Cloudflare-protected sites) block automated crawlers even with a legitimate `User-Agent` header. The current implementation handles this gracefully — `FetchError` is logged to stderr and the crawl continues to other pages. More sophisticated anti-bot measures (JavaScript challenges, CAPTCHAs, rate-based blocking) are out of scope for this project.
+
+### srcset attribute
+The HTML `srcset` attribute (`<img>` and `<source>`) contains comma-separated URL entries with width/pixel-density descriptors (e.g. `image-480w.jpg 480w, image-800w.jpg 800w`). This requires dedicated parsing logic beyond simple attribute extraction. Deferred — the current `_TAG_ATTRS` approach handles single-URL attributes cleanly.
+
+### Large binary responses
+`response.text` materialises the entire response body. For large binary files (PDFs, images) this is wasteful. A future optimisation: send a HEAD request to check `content-type` before fetching the full body. Deferred — not a blocker for correctness.
+
+### Single-domain constraint
+The crawler only follows links within the exact same hostname (not subdomains). `blog.example.com` is treated as external to `example.com`. This is by design per the brief, but could be made configurable.
+
+## Development Process
+
+### Methodology
+Strict TDD red-green-refactor throughout. Each feature starts with a failing test, then minimal implementation to make it pass, then cleanup. Code review after each implementation step catches issues early.
+
+### Tools
+- **IDE**: VSCode with Claude Code extension — AI-assisted pair programming
+- **AI collaboration**: Claude (Anthropic) used as a collaborative partner. The developer reviewed all code, challenged suggestions (e.g. false positive bug reports from code review), and made architectural decisions. AI was particularly useful for Python-specific idioms (async generators, Protocol types, pytest fixtures) given the developer's background in Java/Go/TypeScript.
+- **Domain knowledge**: Developer's existing knowledge of web standards (HTML tags, URL resolution, robots.txt) guided feature scope. AI explained Python-specific approaches (e.g. `asyncio.Queue` vs `asyncio.gather`, `urllib.robotparser` stdlib module).
+- **Library research**: Googling Python libraries (httpx, beautifulsoup4, pydantic-settings) to read official docs and understand capabilities before writing code.
+- **Verification**: `make all` (format + lint + typecheck + test) after every change. Code review skill (`/simple-code-reviewer`) before each commit to catch issues the automated tools miss.
+
+### TDD cycle in practice
+1. Write one test capturing the desired behaviour → run it → confirm it fails (red)
+2. Write minimal code to make it pass → run it → confirm it passes (green)
+3. Refactor if needed (extract helpers, rename for clarity)
+4. `make all` to verify nothing broke
+5. Repeat for next behaviour
+
+This approach caught several issues early:
+- First worker cancellation test passed immediately (wrong — it only tested exception propagation, not actual cancellation). Rewritten with `asyncio.Event` synchronisation to properly verify the slow worker was cancelled.
+- Parser indentation error when adding inner loop — caught by test failure before it could be committed.

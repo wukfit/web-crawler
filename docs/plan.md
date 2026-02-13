@@ -13,8 +13,9 @@ CLI (typer) → CrawlerService → HTTPClient (httpx) → HTMLParser (beautifuls
 ### Step 1: Parser (`crawler/parser.py`) — DONE
 - `extract_urls(html, base_url)` — extract URLs from `<a>`, `<img>`, `<link>`, `<script>`, `<source>`, `<video>`, `<audio>`
 - `normalise_url(url)` — strip fragments and trailing slashes
+- Multi-attribute tag support (`<video src poster>`) via `dict[str, list[str]]`
 - Input validation at module boundary, early return for empty HTML
-- 23 unit tests covering all behaviours
+- 25 unit tests covering all behaviours
 
 ### Step 2: HTTP Client (`http/client.py`) — DONE
 - `HttpClient` Protocol + `HttpxClient` implementation
@@ -25,19 +26,22 @@ CLI (typer) → CrawlerService → HTTPClient (httpx) → HTMLParser (beautifuls
 - 9 unit tests using httpx MockTransport + 3 settings tests
 
 ### Step 3: Crawler Service (`crawler/service.py`) — DONE
+- Streaming output via `AsyncIterator[CrawlerResult]` (dual-queue pattern)
 - BFS URL queue with visited set
 - `is_same_domain` — same-domain filtering for crawl queue
 - Async worker pool with `asyncio.Semaphore` for concurrency control
+- Worker cancellation on unexpected errors via explicit `task.cancel()` in finally
 - Wire parser + HTTP client
 - robots.txt compliance via `urllib.robotparser`
 - Graceful per-page error handling (FetchError, non-200, non-HTML)
 - stderr logging for FetchError and non-200 responses
 - try/finally for guaranteed cleanup of in_progress counter
-- 19 unit tests using FakeHttpClient (no external mocks)
+- 20 unit tests using FakeHttpClient (no external mocks)
 
 ### Step 4: CLI Wiring (`cli.py`) — DONE
 - Accept `url` argument via typer
 - `asyncio.run()` bridge from sync typer to async crawl
+- Streaming output — prints each page as it's crawled
 - Per-page grouped output (page URL + indented discovered URLs)
 - stderr logging config for crawler warnings
 - 2 unit tests (happy path with monkeypatched service, missing arg)
