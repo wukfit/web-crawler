@@ -16,12 +16,13 @@ class TokenBucket:
         self._last_refill = time.monotonic()
         self._lock = asyncio.Lock()
 
-    def set_rate(self, rate: float) -> None:
+    async def set_rate(self, rate: float) -> None:
         """Update the token refill rate and burst size."""
         if rate <= 0:
             raise ValueError("rate must be positive")
-        self._rate = rate
-        self._max_tokens = rate
+        async with self._lock:
+            self._rate = rate
+            self._max_tokens = rate
 
     async def acquire(self) -> None:
         """Block until a token is available."""

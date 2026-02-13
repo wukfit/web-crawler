@@ -1,5 +1,8 @@
 """Tests for HTTP client settings."""
 
+import pytest
+from pydantic import ValidationError
+
 from web_crawler.http.settings import HttpSettings
 
 
@@ -31,3 +34,19 @@ class TestHttpSettings:
         settings = HttpSettings()
 
         assert settings.requests_per_second == 5.0
+
+    def test_rejects_negative_timeout(self):
+        with pytest.raises(ValidationError):
+            HttpSettings(timeout=-1.0)
+
+    def test_rejects_zero_timeout(self):
+        with pytest.raises(ValidationError):
+            HttpSettings(timeout=0.0)
+
+    def test_rejects_negative_requests_per_second(self):
+        with pytest.raises(ValidationError):
+            HttpSettings(requests_per_second=-1.0)
+
+    def test_rejects_zero_requests_per_second(self):
+        with pytest.raises(ValidationError):
+            HttpSettings(requests_per_second=0.0)

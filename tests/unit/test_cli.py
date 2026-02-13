@@ -13,14 +13,14 @@ runner = CliRunner()
 async def fake_crawl(self: object, url: str) -> AsyncIterator[CrawlerResult]:
     yield CrawlerResult(
         url="https://example.com",
-        links=[
+        links=(
             "https://example.com/about",
             "https://example.com/logo.png",
-        ],
+        ),
     )
     yield CrawlerResult(
         url="https://example.com/about",
-        links=["https://example.com"],
+        links=("https://example.com",),
     )
 
 

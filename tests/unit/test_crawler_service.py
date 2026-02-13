@@ -48,7 +48,7 @@ class TestCrawlerService:
 
         assert len(results) == 1
         assert results[0].url == "https://example.com"
-        assert results[0].links == []
+        assert results[0].links == ()
 
     async def test_follows_discovered_links(self):
         client = FakeHttpClient(
@@ -543,7 +543,7 @@ class TestRateLimiting:
                 nonlocal acquire_count
                 acquire_count += 1
 
-            def set_rate(self, rate: float) -> None:
+            async def set_rate(self, rate: float) -> None:
                 pass
 
         client = FakeHttpClient(
@@ -572,7 +572,7 @@ class TestRateLimiting:
             async def acquire(self) -> None:
                 pass
 
-            def set_rate(self, rate: float) -> None:
+            async def set_rate(self, rate: float) -> None:
                 set_rate_calls.append(rate)
 
         robots_txt = "User-agent: *\nCrawl-delay: 2\n"
@@ -604,7 +604,7 @@ class TestRateLimiting:
             async def acquire(self) -> None:
                 pass
 
-            def set_rate(self, rate: float) -> None:
+            async def set_rate(self, rate: float) -> None:
                 set_rate_calls.append(rate)
 
         robots_txt = "User-agent: *\nCrawl-delay: 0\n"

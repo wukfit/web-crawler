@@ -45,7 +45,7 @@ class TestTokenBucket:
         for _ in range(100):
             await bucket.acquire()
 
-        bucket.set_rate(2.0)
+        await bucket.set_rate(2.0)
         with pytest.raises(asyncio.TimeoutError):
             await asyncio.wait_for(bucket.acquire(), timeout=0.1)
 
@@ -57,7 +57,7 @@ class TestTokenBucket:
         with pytest.raises(ValueError, match="rate"):
             TokenBucket(rate=-1.0)
 
-    def test_set_rate_rejects_zero(self):
+    async def test_set_rate_rejects_zero(self):
         bucket = TokenBucket(rate=10.0)
         with pytest.raises(ValueError, match="rate"):
-            bucket.set_rate(0.0)
+            await bucket.set_rate(0.0)

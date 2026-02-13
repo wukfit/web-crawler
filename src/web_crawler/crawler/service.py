@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Protocol
 from urllib.parse import urlparse
 from urllib.robotparser import RobotFileParser
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 class RateLimiter(Protocol):
     async def acquire(self) -> None: ...
-    def set_rate(self, rate: float) -> None: ...
+    async def set_rate(self, rate: float) -> None: ...
 
 
 def is_same_domain(url: str, base_url: str) -> bool:
@@ -27,7 +27,7 @@ def is_same_domain(url: str, base_url: str) -> bool:
 @dataclass(frozen=True)
 class CrawlerResult:
     url: str
-    links: list[str] = field(default_factory=list)
+    links: tuple[str, ...] = ()
 
 
 class CrawlerService:
@@ -73,7 +73,7 @@ class CrawlerService:
         if self._rate_limiter is not None:
             crawl_delay = robots.crawl_delay(self._user_agent)
             if crawl_delay is not None and float(crawl_delay) > 0:
-                self._rate_limiter.set_rate(1.0 / float(crawl_delay))
+                await self._rate_limiter.set_rate(1.0 / float(crawl_delay))
 
         visited: set[str] = set()
         url_queue: asyncio.Queue[tuple[str, str, int]] = asyncio.Queue()
@@ -137,7 +137,7 @@ class CrawlerService:
                         links = extract_urls(response.body, final_url)
                         pages_crawled += 1
                         await result_queue.put(
-                            CrawlerResult(url=final_url, links=links)
+                            CrawlerResult(url=final_url, links=tuple(links))
                         )
 
                         if (

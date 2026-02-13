@@ -22,7 +22,8 @@ _TAG_ATTRS: dict[str, list[str]] = {
 def normalise_url(url: str) -> str:
     """Strip fragment and trailing slash from a URL."""
     parsed = urlparse(url)
-    return parsed._replace(fragment="").geturl().rstrip("/")
+    path = parsed.path.rstrip("/")
+    return parsed._replace(fragment="", path=path).geturl()
 
 
 def extract_urls(html: str, base_url: str) -> list[str]:

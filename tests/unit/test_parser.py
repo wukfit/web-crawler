@@ -206,3 +206,18 @@ class TestNormaliseUrl:
             normalise_url("https://example.com/about/#top")
             == "https://example.com/about"
         )
+
+    def test_preserves_scheme_only_url(self):
+        assert normalise_url("https://") == "https://"
+
+    def test_preserves_query_parameters(self):
+        assert (
+            normalise_url("https://example.com/search?q=test&page=1")
+            == "https://example.com/search?q=test&page=1"
+        )
+
+    def test_strips_trailing_slash_preserves_query(self):
+        assert (
+            normalise_url("https://example.com/path/?q=1")
+            == "https://example.com/path?q=1"
+        )
