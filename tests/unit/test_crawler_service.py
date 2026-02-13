@@ -429,6 +429,111 @@ class TestCrawlerService:
         )
 
 
+class TestMaxDepth:
+    async def test_stops_crawling_beyond_max_depth(self):
+        # Chain: / → /a → /b → /c (depths 0, 1, 2, 3)
+        client = FakeHttpClient(
+            {
+                "https://example.com": html_response(
+                    "https://example.com",
+                    '<a href="https://example.com/a">A</a>',
+                ),
+                "https://example.com/a": html_response(
+                    "https://example.com/a",
+                    '<a href="https://example.com/b">B</a>',
+                ),
+                "https://example.com/b": html_response(
+                    "https://example.com/b",
+                    '<a href="https://example.com/c">C</a>',
+                ),
+                "https://example.com/c": html_response(
+                    "https://example.com/c",
+                    "<html>C</html>",
+                ),
+            }
+        )
+        service = CrawlerService(client, max_depth=2)
+
+        results = [r async for r in service.crawl("https://example.com")]
+
+        urls = {r.url for r in results}
+        # depth 0=/, 1=/a, 2=/b → /c at depth 3 should not be crawled
+        assert "https://example.com" in urls
+        assert "https://example.com/a" in urls
+        assert "https://example.com/b" in urls
+        assert "https://example.com/c" not in urls
+
+    async def test_no_depth_limit_by_default(self):
+        # Chain: / → /a → /b → /c
+        client = FakeHttpClient(
+            {
+                "https://example.com": html_response(
+                    "https://example.com",
+                    '<a href="https://example.com/a">A</a>',
+                ),
+                "https://example.com/a": html_response(
+                    "https://example.com/a",
+                    '<a href="https://example.com/b">B</a>',
+                ),
+                "https://example.com/b": html_response(
+                    "https://example.com/b",
+                    '<a href="https://example.com/c">C</a>',
+                ),
+                "https://example.com/c": html_response(
+                    "https://example.com/c",
+                    "<html>C</html>",
+                ),
+            }
+        )
+        service = CrawlerService(client)
+
+        results = [r async for r in service.crawl("https://example.com")]
+
+        assert len(results) == 4
+
+
+class TestMaxPages:
+    async def test_stops_after_max_pages(self):
+        responses: dict[str, HttpResponse] = {
+            "https://example.com": html_response(
+                "https://example.com",
+                "".join(
+                    f'<a href="https://example.com/{i}">{i}</a>' for i in range(5)
+                ),
+            ),
+        }
+        for i in range(5):
+            url = f"https://example.com/{i}"
+            responses[url] = html_response(url, "<html>Page</html>")
+
+        client = FakeHttpClient(responses)
+        service = CrawlerService(client, max_pages=3)
+
+        results = [r async for r in service.crawl("https://example.com")]
+
+        assert len(results) == 3
+
+    async def test_no_page_limit_by_default(self):
+        responses: dict[str, HttpResponse] = {
+            "https://example.com": html_response(
+                "https://example.com",
+                "".join(
+                    f'<a href="https://example.com/{i}">{i}</a>' for i in range(5)
+                ),
+            ),
+        }
+        for i in range(5):
+            url = f"https://example.com/{i}"
+            responses[url] = html_response(url, "<html>Page</html>")
+
+        client = FakeHttpClient(responses)
+        service = CrawlerService(client)
+
+        results = [r async for r in service.crawl("https://example.com")]
+
+        assert len(results) == 6
+
+
 class TestRateLimiting:
     async def test_rate_limiter_called_before_each_fetch(self):
         acquire_count = 0

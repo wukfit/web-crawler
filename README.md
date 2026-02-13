@@ -69,6 +69,7 @@ Compared against the [WHATWG HTML standard](https://html.spec.whatwg.org/multipa
 - **Streaming skip heuristic**: Non-HTML responses are identified by `content-type` header and skipped without reading the body. Servers that return incorrect `content-type` headers may cause HTML pages to be skipped.
 - **JS-rendered content**: Pages that render via JavaScript (SPAs, React/Next.js CSR) will have no discoverable links in the body. The crawler parses raw HTML only.
 - **Terminal escape injection**: URLs containing ANSI escape sequences are printed to stdout without sanitisation. A malicious page could craft URLs that manipulate terminal display. Mitigated in practice by URL percent-encoding, but not guaranteed for all HTML parsers/entities.
+- **Approximate `--max-pages`**: The page counter is shared across concurrent workers without a lock. In CPython the increment is a single bytecode op between await points so races are unlikely, but under high concurrency the crawler may overshoot the limit by 1-2 pages.
 
 ## Development
 
