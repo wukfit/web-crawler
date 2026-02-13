@@ -50,21 +50,21 @@ CLI (typer) → CrawlerService → HTTPClient (httpx) → HTMLParser (beautifuls
 
 - **cli.py**: Thin presentation layer. Parses args, delegates to service, formats output.
 - **crawler/service.py**: Orchestration. Manages URL queue, visited set, concurrency.
-- **crawler/parser.py**: Domain logic. Extracts links, resolves relative URLs, filters by domain.
+- **crawler/parser.py**: Domain logic. Extracts and resolves links from HTML.
 - **http/client.py**: Infrastructure. HTTP requests, connection pooling, retry logic.
 
 Each layer depends only on the layer below it. The HTTP client is injectable, making the crawler testable without real HTTP calls.
 
 ## 2026-02-12: Parser Implementation
 
-### Extracted helpers: `is_same_domain`, `normalise_url`
-Code review identified "what" comments explaining inline logic. Replaced with named functions that make `extract_links` read as a pipeline of named operations. Both helpers are independently testable.
+### Extracted helper: `normalise_url`
+Code review identified "what" comments explaining inline logic. Replaced with a named function that makes `extract_links` read as a pipeline of named operations. Independently testable.
 
 ### Scheme filtering: allowlist over blocklist
 Initially filtered `mailto:` and `javascript:` by prefix. Code review caught that `tel:`, `ftp:`, `data:` etc. would slip through. Switched to allowlisting `http`/`https` on the resolved URL — more robust and future-proof.
 
 ### Input validation: at module boundary only
-`extract_links` validates `base_url` (raises `ValueError` if empty) and short-circuits on empty `html` (avoids BeautifulSoup overhead at scale). Internal helpers (`is_same_domain`, `normalise_url`) do not validate — they're trusted internal functions called after the boundary check. If these helpers are later used outside `extract_links`, validation should be added at that point.
+`extract_links` validates `base_url` (raises `ValueError` if empty) and short-circuits on empty `html` (avoids BeautifulSoup overhead at scale). `normalise_url` does not validate — it's a trusted internal function called after the boundary check.
 
 ### URL normalisation
 - Fragments stripped (same page, not a distinct resource)
@@ -83,7 +83,7 @@ Frozen dataclass wrapping `url`, `status_code`, `body`, `content_type`. Avoids l
 Network/transport errors (`ConnectError`, `TimeoutException`) are caught and re-raised as `FetchError`. Non-success HTTP status codes (4xx, 5xx) are returned as normal responses — the caller decides how to handle them. Retry logic belongs in the service layer, not the HTTP client.
 
 ### Crawlable vs reportable URLs
-The parser returns *all* same-domain URLs found on a page (images, PDFs, etc.) — these are reportable. The service layer determines which are *crawlable* by checking the response `content_type` after fetching. This matches the requirement: "print the URL and all URLs found on that page".
+The parser returns *all* URLs found on a page (internal, external, images, PDFs, etc.) — these are reportable. The service layer determines which are *crawlable* by checking `is_same_domain` and the response `content_type` after fetching. This matches the requirement: "print the URL and all URLs found on that page".
 
 ### Memory concern: large binary responses
 `response.text` materialises the entire body. For large binary files (e.g. 50MB PDF) this is wasteful. A future optimisation: HEAD request to check content-type before fetching the full body. Deferred — not a blocker for initial implementation.
@@ -110,5 +110,8 @@ The `in_progress` counter and `done_event` signal coordinate worker lifecycle. A
 ### asyncio.run bridge
 Typer is synchronous. The crawler is async. `asyncio.run(_crawl(url))` bridges the two. The async function creates the `HttpxClient` context manager, runs the crawl, then prints results. Simple and standard — no third-party async CLI libraries needed.
 
-### Output format: one URL per line
-Plain URLs to stdout, one per line. Easy to pipe to `wc -l`, `sort`, `grep`, or other Unix tools. No JSON or structured output — keep it simple for v1.
+### Output format: per-page grouped
+For each crawled page, print the page URL then all URLs found on that page. No deduplication across pages — if a URL appears on multiple pages, it prints under each. Plain text, easy to pipe to Unix tools.
+
+### Domain filtering in service, not parser
+`is_same_domain` moved from parser to service. The parser's job is to extract and resolve all links from HTML. Which links to crawl is a service-layer policy decision. This keeps the parser reusable and the service's crawl boundary explicit.

@@ -11,11 +11,10 @@ CLI (typer) → CrawlerService → HTTPClient (httpx) → HTMLParser (beautifuls
 ## Steps
 
 ### Step 1: Parser (`crawler/parser.py`) — DONE
-- `extract_links(html, base_url)` — extract `<a href>` links from HTML
-- `is_same_domain(url, base_url)` — exact hostname match
+- `extract_links(html, base_url)` — extract ALL `<a href>` links from HTML (no domain filtering)
 - `normalise_url(url)` — strip fragments and trailing slashes
 - Input validation at module boundary, early return for empty HTML
-- 22 unit tests covering all behaviours
+- 18 unit tests covering all behaviours
 
 ### Step 2: HTTP Client (`http/client.py`) — DONE
 - `HttpClient` Protocol + `HttpxClient` implementation
@@ -28,16 +27,17 @@ CLI (typer) → CrawlerService → HTTPClient (httpx) → HTMLParser (beautifuls
 ### Step 3: Crawler Service (`crawler/service.py`) — DONE
 - BFS URL queue with visited set
 - Async worker pool with `asyncio.Semaphore` for concurrency control
+- `is_same_domain` for crawl queue filtering (only same-domain pages crawled)
 - Wire parser + HTTP client
 - Graceful per-page error handling (FetchError, non-200, non-HTML)
 - try/finally for guaranteed cleanup of in_progress counter
-- 7 unit tests using FakeHttpClient (no external mocks)
+- 13 unit tests using FakeHttpClient (no external mocks)
 
 ### Step 4: CLI Wiring (`cli.py`) — DONE
 - Accept `url` argument via typer
 - `asyncio.run()` bridge from sync typer to async crawl
-- Print discovered URLs one per line to stdout
-- 2 unit tests (happy path with monkeypatched service, missing arg)
+- Per-page grouped output: page URL then all found links (no cross-page dedup)
+- 3 unit tests (grouped output, no dedup, missing arg)
 
 ## Process per step
 

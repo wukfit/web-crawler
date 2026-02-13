@@ -2,9 +2,15 @@
 
 import asyncio
 from dataclasses import dataclass, field
+from urllib.parse import urlparse
 
 from web_crawler.crawler.parser import extract_links
 from web_crawler.http.client import FetchError, HttpClient
+
+
+def is_same_domain(url: str, base_url: str) -> bool:
+    """Check if url has the exact same hostname as base_url."""
+    return urlparse(url).hostname == urlparse(base_url).hostname
 
 
 @dataclass(frozen=True)
@@ -60,22 +66,17 @@ class CrawlerService:
                             continue
 
                         links = extract_links(response.body, url)
-                        results.append(
-                            CrawlerResult(url=url, links=links)
-                        )
+                        results.append(CrawlerResult(url=url, links=links))
 
                         for link in links:
-                            if link not in visited:
+                            if is_same_domain(link, start_url) and link not in visited:
                                 visited.add(link)
                                 await queue.put(link)
                 finally:
                     in_progress -= 1
                     done_event.set()
 
-        workers = [
-            asyncio.create_task(worker())
-            for _ in range(self._max_concurrency)
-        ]
+        workers = [asyncio.create_task(worker()) for _ in range(self._max_concurrency)]
         await asyncio.gather(*workers)
 
         return results

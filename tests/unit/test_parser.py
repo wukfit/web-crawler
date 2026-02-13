@@ -1,6 +1,6 @@
 import pytest
 
-from web_crawler.crawler.parser import extract_links, is_same_domain, normalise_url
+from web_crawler.crawler.parser import extract_links, normalise_url
 
 
 class TestExtractLinks:
@@ -19,21 +19,27 @@ class TestExtractLinks:
         result = extract_links(html, "https://example.com/page")
         assert result == ["https://example.com/about"]
 
-    def test_filters_out_external_domains(self):
+    def test_includes_external_domains(self):
         html = """<html><body>
             <a href="https://example.com/about">Internal</a>
             <a href="https://other.com/page">External</a>
         </body></html>"""
         result = extract_links(html, "https://example.com")
-        assert result == ["https://example.com/about"]
+        assert result == [
+            "https://example.com/about",
+            "https://other.com/page",
+        ]
 
-    def test_filters_out_subdomains(self):
+    def test_includes_subdomains(self):
         html = """<html><body>
             <a href="https://example.com/about">Internal</a>
             <a href="https://blog.example.com/post">Subdomain</a>
         </body></html>"""
         result = extract_links(html, "https://example.com")
-        assert result == ["https://example.com/about"]
+        assert result == [
+            "https://example.com/about",
+            "https://blog.example.com/post",
+        ]
 
     def test_filters_out_non_http_schemes(self):
         html = """<html><body>
@@ -93,27 +99,6 @@ class TestExtractLinks:
         result = extract_links(html, "https://example.com")
         # Both should resolve to the same URL
         assert len(result) == 1
-
-
-class TestIsSameDomain:
-    def test_same_domain(self):
-        assert (
-            is_same_domain("https://example.com/about", "https://example.com") is True
-        )
-
-    def test_different_domain(self):
-        assert is_same_domain("https://other.com/page", "https://example.com") is False
-
-    def test_subdomain(self):
-        assert (
-            is_same_domain("https://blog.example.com/post", "https://example.com")
-            is False
-        )
-
-    def test_same_domain_different_path(self):
-        assert (
-            is_same_domain("https://example.com/a/b/c", "https://example.com/x") is True
-        )
 
 
 class TestNormaliseUrl:

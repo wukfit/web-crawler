@@ -23,3 +23,5 @@ async def _crawl(url: str) -> None:
 
     for result in results:
         typer.echo(result.url)
+        for link in result.links:
+            typer.echo(link)
