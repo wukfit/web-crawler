@@ -170,3 +170,35 @@ class TestHttpxClient:
 
         assert response.status_code == 200
         assert response.url == "https://example.com/new"
+
+    async def test_retries_on_transient_error(self):
+        call_count = 0
+
+        def flaky_transport(request: httpx.Request) -> httpx.Response:
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                raise httpx.ConnectError("Connection refused")
+            return html_response(request)
+
+        settings = HttpSettings(
+            timeout=30.0, user_agent="web-crawler/0.1.0", retry_backoff=0.01
+        )
+        transport = httpx.MockTransport(flaky_transport)
+        async with HttpxClient(settings=settings, transport=transport) as client:
+            response = await client.fetch("https://example.com")
+
+        assert response.status_code == 200
+        assert call_count == 3
+
+    async def test_raises_after_max_retries(self):
+        settings = HttpSettings(
+            timeout=30.0,
+            user_agent="web-crawler/0.1.0",
+            max_retries=2,
+            retry_backoff=0.01,
+        )
+        transport = httpx.MockTransport(connection_error_transport)
+        async with HttpxClient(settings=settings, transport=transport) as client:
+            with pytest.raises(FetchError):
+                await client.fetch("https://example.com")

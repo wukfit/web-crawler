@@ -1,5 +1,6 @@
 """HTTP client for web requests."""
 
+import asyncio
 from dataclasses import dataclass
 from typing import Protocol, Self
 
@@ -45,11 +46,24 @@ class HttpxClient:
             http2=True,
             transport=transport,
         )
+        self._max_retries = resolved.max_retries
+        self._retry_backoff = resolved.retry_backoff
 
     async def fetch(self, url: str) -> HttpResponse:
         if not url:
             raise ValueError("url must not be empty")
 
+        last_exc: FetchError | None = None
+        for attempt in range(self._max_retries + 1):
+            try:
+                return await self._do_fetch(url)
+            except FetchError as exc:
+                last_exc = exc
+                if attempt < self._max_retries:
+                    await asyncio.sleep(self._retry_backoff * (2**attempt))
+        raise last_exc  # type: ignore[misc]
+
+    async def _do_fetch(self, url: str) -> HttpResponse:
         try:
             async with self._client.stream("GET", url) as response:
                 content_type = response.headers.get("content-type", "")

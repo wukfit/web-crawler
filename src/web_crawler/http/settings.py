@@ -12,3 +12,5 @@ class HttpSettings(BaseSettings):
     timeout: Annotated[float, Gt(0)] = 30.0
     user_agent: str = "web-crawler/0.1.0"
     requests_per_second: Annotated[float, Gt(0)] = 10.0
+    max_retries: int = 3
+    retry_backoff: Annotated[float, Gt(0)] = 0.5

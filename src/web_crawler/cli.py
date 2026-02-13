@@ -33,11 +33,12 @@ def main(
     url: str = typer.Argument(..., help="URL to crawl"),
     max_depth: int | None = typer.Option(None, help="Maximum crawl depth"),
     max_pages: int | None = typer.Option(None, help="Maximum pages to crawl"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging"),
 ) -> None:
     """Crawl a website and print discovered URLs."""
     logging.basicConfig(
         stream=sys.stderr,
-        level=logging.WARNING,
+        level=logging.DEBUG if verbose else logging.WARNING,
         format="%(levelname)s: %(message)s",
     )
     _validate_url(url)

@@ -40,6 +40,7 @@ class CrawlerService:
         rate_limiter: RateLimiter | None = None,
         max_depth: int | None = None,
         max_pages: int | None = None,
+        max_visited: int | None = None,
     ) -> None:
         self._client = client
         self._max_concurrency = max_concurrency
@@ -47,6 +48,7 @@ class CrawlerService:
         self._rate_limiter = rate_limiter
         self._max_depth = max_depth
         self._max_pages = max_pages
+        self._max_visited = max_visited
 
     async def _fetch(self, url: str) -> HttpResponse:
         if self._rate_limiter is not None:
@@ -165,6 +167,10 @@ class CrawlerService:
                         for link in links:
                             if (
                                 link not in visited
+                                and (
+                                    self._max_visited is None
+                                    or len(visited) < self._max_visited
+                                )
                                 and is_same_domain(link, start_url)
                                 and robots.can_fetch(self._user_agent, link)
                                 and (

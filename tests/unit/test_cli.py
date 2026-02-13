@@ -111,3 +111,10 @@ class TestCli:
 
         assert result.exit_code == 0
         assert captured["max_pages"] == 10
+
+    def test_verbose_flag_accepted(self, monkeypatch):
+        monkeypatch.setattr("web_crawler.cli.CrawlerService.crawl", fake_crawl)
+
+        result = runner.invoke(app, ["https://example.com", "--verbose"])
+
+        assert result.exit_code == 0

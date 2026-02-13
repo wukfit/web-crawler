@@ -590,6 +590,28 @@ class TestMaxPages:
         assert len(results) == 6
 
 
+class TestVisitedCap:
+    async def test_stops_discovering_after_visited_cap(self):
+        responses: dict[str, HttpResponse] = {
+            "https://example.com": html_response(
+                "https://example.com",
+                "".join(
+                    f'<a href="https://example.com/{i}">{i}</a>' for i in range(100)
+                ),
+            ),
+        }
+        for i in range(100):
+            url = f"https://example.com/{i}"
+            responses[url] = html_response(url, "<html>Leaf</html>")
+
+        client = FakeHttpClient(responses)
+        service = CrawlerService(client, max_visited=20)
+
+        results = [r async for r in service.crawl("https://example.com")]
+
+        assert len(results) <= 20
+
+
 class TestRateLimiting:
     async def test_rate_limiter_called_before_each_fetch(self):
         acquire_count = 0
