@@ -269,6 +269,37 @@ class TestCrawlerService:
         await asyncio.sleep(0.01)
         assert slow_fetch_cancelled
 
+    async def test_iterator_abandonment_cancels_workers(self):
+        fetch_count = 0
+
+        class CountingClient(FakeHttpClient):
+            async def fetch(self, url: str) -> HttpResponse:
+                nonlocal fetch_count
+                fetch_count += 1
+                await asyncio.sleep(0.01)
+                return await super().fetch(url)
+
+        responses: dict[str, HttpResponse] = {
+            "https://example.com": html_response(
+                "https://example.com",
+                "".join(
+                    f'<a href="https://example.com/{i}">{i}</a>' for i in range(20)
+                ),
+            ),
+        }
+        for i in range(20):
+            url = f"https://example.com/{i}"
+            responses[url] = html_response(url, "<html>Page</html>")
+
+        client = CountingClient(responses)
+        service = CrawlerService(client)
+
+        async for _result in service.crawl("https://example.com"):
+            break
+
+        await asyncio.sleep(0.1)
+        assert fetch_count < 10
+
     async def test_stores_all_links_including_external(self):
         client = FakeHttpClient(
             {
@@ -512,6 +543,31 @@ class TestMaxPages:
         results = [r async for r in service.crawl("https://example.com")]
 
         assert len(results) == 3
+
+    async def test_max_pages_not_exceeded_under_concurrency(self):
+        responses: dict[str, HttpResponse] = {
+            "https://example.com": html_response(
+                "https://example.com",
+                "".join(
+                    f'<a href="https://example.com/{i}">{i}</a>' for i in range(20)
+                ),
+            ),
+        }
+        for i in range(20):
+            url = f"https://example.com/{i}"
+            responses[url] = html_response(url, "<html>Page</html>")
+
+        class SlowClient(FakeHttpClient):
+            async def fetch(self, url: str) -> HttpResponse:
+                await asyncio.sleep(0.01)
+                return await super().fetch(url)
+
+        client = SlowClient(responses)
+        service = CrawlerService(client, max_concurrency=10, max_pages=5)
+
+        results = [r async for r in service.crawl("https://example.com")]
+
+        assert len(results) <= 5
 
     async def test_no_page_limit_by_default(self):
         responses: dict[str, HttpResponse] = {

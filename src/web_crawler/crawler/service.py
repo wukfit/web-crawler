@@ -1,6 +1,7 @@
 """Crawler orchestration service."""
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -79,6 +80,7 @@ class CrawlerService:
         url_queue: asyncio.Queue[tuple[str, str, int]] = asyncio.Queue()
         result_queue: asyncio.Queue[CrawlerResult | None] = asyncio.Queue()
         semaphore = asyncio.Semaphore(self._max_concurrency)
+        pages_lock = asyncio.Lock()
         in_progress = 0
         pages_crawled = 0
         done_event = asyncio.Event()
@@ -101,8 +103,12 @@ class CrawlerService:
 
                 in_progress += 1
                 try:
-                    if self._max_pages is not None and pages_crawled >= self._max_pages:
-                        continue
+                    async with pages_lock:
+                        if (
+                            self._max_pages is not None
+                            and pages_crawled >= self._max_pages
+                        ):
+                            continue
 
                     async with semaphore:
                         try:
@@ -135,15 +141,25 @@ class CrawlerService:
                             continue
 
                         links = extract_urls(response.body, final_url)
-                        pages_crawled += 1
+
+                        async with pages_lock:
+                            if (
+                                self._max_pages is not None
+                                and pages_crawled >= self._max_pages
+                            ):
+                                continue
+                            pages_crawled += 1
+
                         await result_queue.put(
                             CrawlerResult(url=final_url, links=tuple(links))
                         )
 
-                        if (
-                            self._max_pages is not None
-                            and pages_crawled >= self._max_pages
-                        ):
+                        async with pages_lock:
+                            at_limit = (
+                                self._max_pages is not None
+                                and pages_crawled >= self._max_pages
+                            )
+                        if at_limit:
                             continue
 
                         for link in links:
@@ -174,11 +190,13 @@ class CrawlerService:
                 await result_queue.put(None)
 
         task = asyncio.create_task(run_workers())
-
-        while True:
-            result = await result_queue.get()
-            if result is None:
-                break
-            yield result
-
-        await task
+        try:
+            while True:
+                result = await result_queue.get()
+                if result is None:
+                    break
+                yield result
+        finally:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
