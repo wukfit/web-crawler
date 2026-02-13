@@ -33,15 +33,18 @@ https://example.com/about
 |---|---|---|
 | `CRAWLER_TIMEOUT` | `30.0` | HTTP request timeout in seconds |
 | `CRAWLER_USER_AGENT` | `web-crawler/0.1.0` | User-Agent header and robots.txt identity |
+| `CRAWLER_REQUESTS_PER_SECOND` | `10.0` | Max requests per second (overridden by robots.txt `Crawl-delay`) |
 
 ## How It Works
 
-1. Fetches and parses `robots.txt` to determine which paths are allowed
+1. Fetches and parses `robots.txt` to determine which paths are allowed; honours `Crawl-delay` directive
 2. Spawns concurrent async workers that pull URLs from a shared queue
-3. For each HTML page, extracts URLs from all standard resource tags (see table below)
-4. Streams results to stdout immediately as each page completes
-5. Queues newly discovered same-domain URLs for further crawling
-6. Skips already-visited URLs, non-HTML responses, and robots.txt-disallowed paths
+3. Rate-limits requests via token bucket (configurable, overridden by robots.txt `Crawl-delay`)
+4. Uses streaming HTTP to check content-type before downloading — non-HTML responses (images, PDFs) are skipped without reading the body
+5. For each HTML page, extracts URLs from all standard resource tags (see table below)
+6. Streams results to stdout immediately as each page completes
+7. Queues newly discovered same-domain URLs for further crawling
+8. Skips already-visited URLs, non-HTML responses, and robots.txt-disallowed paths
 
 ### HTML URL attribute coverage
 
@@ -63,7 +66,7 @@ Compared against the [WHATWG HTML standard](https://html.spec.whatwg.org/multipa
 
 - **Bot protection**: Sites with Cloudflare, JavaScript challenges, or CAPTCHAs will block the crawler. Failed fetches are logged to stderr and the crawl continues.
 - **Single domain only**: Subdomains (e.g. `blog.example.com`) are treated as external.
-- **Full body fetch**: Binary files (PDFs, images) are fully downloaded before being identified as non-HTML. A HEAD-first optimisation is possible but not implemented.
+- **Streaming skip heuristic**: Non-HTML responses are identified by `content-type` header and skipped without reading the body. Servers that return incorrect `content-type` headers may cause HTML pages to be skipped.
 - **JS-rendered content**: Pages that render via JavaScript (SPAs, React/Next.js CSR) will have no discoverable links in the body. The crawler parses raw HTML only.
 - **Terminal escape injection**: URLs containing ANSI escape sequences are printed to stdout without sanitisation. A malicious page could craft URLs that manipulate terminal display. Mitigated in practice by URL percent-encoding, but not guaranteed for all HTML parsers/entities.
 

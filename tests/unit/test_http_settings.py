@@ -9,6 +9,7 @@ class TestHttpSettings:
 
         assert settings.timeout == 30.0
         assert settings.user_agent == "web-crawler/0.1.0"
+        assert settings.requests_per_second == 10.0
 
     def test_env_overrides_timeout(self, monkeypatch):
         monkeypatch.setenv("CRAWLER_TIMEOUT", "10.5")
@@ -23,3 +24,10 @@ class TestHttpSettings:
         settings = HttpSettings()
 
         assert settings.user_agent == "custom-bot/2.0"
+
+    def test_env_overrides_requests_per_second(self, monkeypatch):
+        monkeypatch.setenv("CRAWLER_REQUESTS_PER_SECOND", "5.0")
+
+        settings = HttpSettings()
+
+        assert settings.requests_per_second == 5.0

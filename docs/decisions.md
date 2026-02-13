@@ -19,7 +19,7 @@
 
 ### HTTP Client: httpx
 - Modern async/sync HTTP client with requests-compatible API
-- HTTP/2 support out of the box
+- HTTP/2 enabled via `h2` dependency and `http2=True` on `AsyncClient`
 - Swappable via Python Protocol (interface) — crawler never knows which HTTP library is underneath
 
 ### HTML Parsing: beautifulsoup4

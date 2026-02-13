@@ -101,6 +101,36 @@ class TestCrawlerService:
         assert len(results) == 2
         assert all(c == 1 for c in fetch_count.values())
 
+    async def test_does_not_recrawl_start_url_with_trailing_slash(self):
+        fetch_count: dict[str, int] = {}
+
+        class CountingClient(FakeHttpClient):
+            async def fetch(self, url: str) -> HttpResponse:
+                fetch_count[url] = fetch_count.get(url, 0) + 1
+                return await super().fetch(url)
+
+        client = CountingClient(
+            {
+                "https://example.com/": html_response(
+                    "https://example.com/",
+                    '<a href="https://example.com/about">About</a>',
+                ),
+                "https://example.com": html_response(
+                    "https://example.com",
+                    '<a href="https://example.com/about">About</a>',
+                ),
+                "https://example.com/about": html_response(
+                    "https://example.com/about",
+                    '<a href="https://example.com">Home</a>',
+                ),
+            }
+        )
+        service = CrawlerService(client)
+
+        results = [r async for r in service.crawl("https://example.com/")]
+
+        assert len(results) == 2
+
     async def test_skips_non_html_responses(self):
         client = FakeHttpClient(
             {
@@ -277,6 +307,80 @@ class TestCrawlerService:
         urls = {r.url for r in results}
         assert urls == {"https://example.com"}
 
+    async def test_uses_final_url_after_redirect(self):
+        client = FakeHttpClient(
+            {
+                "https://example.com/old": html_response(
+                    "https://example.com/new",
+                    '<a href="relative-page">Link</a>',
+                ),
+            }
+        )
+        service = CrawlerService(client)
+
+        results = [r async for r in service.crawl("https://example.com/old")]
+
+        assert len(results) == 1
+        assert results[0].url == "https://example.com/new"
+        # Relative link resolved against /new, not /old
+        assert "https://example.com/relative-page" in results[0].links
+
+    async def test_skips_page_when_redirect_leaves_domain(self):
+        client = FakeHttpClient(
+            {
+                "https://example.com": html_response(
+                    "https://example.com",
+                    '<a href="https://example.com/moved">Moved</a>',
+                ),
+                "https://example.com/moved": html_response(
+                    "https://other.com/landing",
+                    '<a href="https://other.com/page">Page</a>',
+                ),
+            }
+        )
+        service = CrawlerService(client)
+
+        results = [r async for r in service.crawl("https://example.com")]
+
+        urls = {r.url for r in results}
+        assert "https://other.com/landing" not in urls
+        assert "https://example.com" in urls
+
+    async def test_redirect_target_added_to_visited(self):
+        fetch_count: dict[str, int] = {}
+
+        class CountingClient(FakeHttpClient):
+            async def fetch(self, url: str) -> HttpResponse:
+                fetch_count[url] = fetch_count.get(url, 0) + 1
+                return await super().fetch(url)
+
+        client = CountingClient(
+            {
+                "https://example.com": html_response(
+                    "https://example.com",
+                    '<a href="https://example.com/old">Old</a>',
+                ),
+                "https://example.com/old": html_response(
+                    "https://example.com/new",
+                    '<a href="https://example.com/page">Page</a>',
+                ),
+                "https://example.com/new": html_response(
+                    "https://example.com/new",
+                    "<html>New</html>",
+                ),
+                "https://example.com/page": html_response(
+                    "https://example.com/page",
+                    '<a href="https://example.com/new">Back</a>',
+                ),
+            }
+        )
+        service = CrawlerService(client)
+
+        [r async for r in service.crawl("https://example.com")]
+
+        # /new should not be fetched separately — already visited via redirect from /old
+        assert fetch_count.get("https://example.com/new", 0) == 0
+
     async def test_logs_fetch_error(self, caplog):
         client = FakeHttpClient(
             {
@@ -325,6 +429,102 @@ class TestCrawlerService:
         )
 
 
+class TestRateLimiting:
+    async def test_rate_limiter_called_before_each_fetch(self):
+        acquire_count = 0
+
+        class FakeRateLimiter:
+            async def acquire(self) -> None:
+                nonlocal acquire_count
+                acquire_count += 1
+
+            def set_rate(self, rate: float) -> None:
+                pass
+
+        client = FakeHttpClient(
+            {
+                "https://example.com": html_response(
+                    "https://example.com",
+                    '<a href="https://example.com/a">A</a>',
+                ),
+                "https://example.com/a": html_response(
+                    "https://example.com/a",
+                    "<html>A</html>",
+                ),
+            }
+        )
+        service = CrawlerService(client, rate_limiter=FakeRateLimiter())
+
+        [r async for r in service.crawl("https://example.com")]
+
+        # robots.txt + start page + /a = 3 fetches
+        assert acquire_count == 3
+
+    async def test_crawl_delay_overrides_rate_limiter(self):
+        set_rate_calls: list[float] = []
+
+        class TrackingRateLimiter:
+            async def acquire(self) -> None:
+                pass
+
+            def set_rate(self, rate: float) -> None:
+                set_rate_calls.append(rate)
+
+        robots_txt = "User-agent: *\nCrawl-delay: 2\n"
+        client = FakeHttpClient(
+            {
+                "https://example.com/robots.txt": HttpResponse(
+                    url="https://example.com/robots.txt",
+                    status_code=200,
+                    body=robots_txt,
+                    content_type="text/plain",
+                ),
+                "https://example.com": html_response(
+                    "https://example.com",
+                    "<html>Home</html>",
+                ),
+            }
+        )
+        service = CrawlerService(client, rate_limiter=TrackingRateLimiter())
+
+        [r async for r in service.crawl("https://example.com")]
+
+        # Crawl-delay: 2 → set_rate(0.5)
+        assert set_rate_calls == [0.5]
+
+    async def test_crawl_delay_zero_does_not_crash(self):
+        set_rate_calls: list[float] = []
+
+        class TrackingRateLimiter:
+            async def acquire(self) -> None:
+                pass
+
+            def set_rate(self, rate: float) -> None:
+                set_rate_calls.append(rate)
+
+        robots_txt = "User-agent: *\nCrawl-delay: 0\n"
+        client = FakeHttpClient(
+            {
+                "https://example.com/robots.txt": HttpResponse(
+                    url="https://example.com/robots.txt",
+                    status_code=200,
+                    body=robots_txt,
+                    content_type="text/plain",
+                ),
+                "https://example.com": html_response(
+                    "https://example.com",
+                    "<html>Home</html>",
+                ),
+            }
+        )
+        service = CrawlerService(client, rate_limiter=TrackingRateLimiter())
+
+        [r async for r in service.crawl("https://example.com")]
+
+        # Crawl-delay: 0 means no delay — rate should not be overridden
+        assert set_rate_calls == []
+
+
 class TestIsSameDomain:
     def test_same_domain(self):
         assert is_same_domain("https://example.com/about", "https://example.com")
@@ -334,6 +534,16 @@ class TestIsSameDomain:
 
     def test_subdomain_is_different(self):
         assert not is_same_domain("https://blog.example.com", "https://example.com")
+
+    def test_different_port_is_different(self):
+        assert not is_same_domain(
+            "https://example.com:8080/page", "https://example.com:443/"
+        )
+
+    def test_same_host_and_port(self):
+        assert is_same_domain(
+            "https://example.com:8080/page", "https://example.com:8080/"
+        )
 
 
 class TestRobotsTxt:

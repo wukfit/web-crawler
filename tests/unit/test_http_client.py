@@ -109,11 +109,30 @@ class TestHttpxClient:
             with pytest.raises(ValueError, match="url"):
                 await client.fetch("")
 
-    async def test_works_as_async_context_manager(self):
+    async def test_returns_empty_body_for_non_html(self):
+        def pdf_response(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                content=b"%PDF-1.4 large binary content" * 1000,
+                headers={"content-type": "application/pdf"},
+                request=request,
+            )
+
+        transport = httpx.MockTransport(pdf_response)
+        async with make_client(transport) as client:
+            response = await client.fetch("https://example.com/doc.pdf")
+
+        assert response.status_code == 200
+        assert response.content_type == "application/pdf"
+        assert response.body == ""
+
+    async def test_returns_body_for_html(self):
         transport = httpx.MockTransport(html_response)
         async with make_client(transport) as client:
             response = await client.fetch("https://example.com")
-            assert response.status_code == 200
+
+        assert response.body == "<html><body>hello</body></html>"
+        assert "text/html" in response.content_type
 
     async def test_follows_redirects(self):
         def redirect_transport(request: httpx.Request) -> httpx.Response:
