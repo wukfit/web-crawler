@@ -74,13 +74,20 @@ Compared against the [WHATWG HTML standard](https://html.spec.whatwg.org/multipa
 ## Development
 
 ```bash
-make test       # run tests (64 tests)
+uv sync                        # install dependencies
+uv run pre-commit install      # set up pre-commit hooks (ruff + mypy)
+```
+
+```bash
+make test       # run tests (98 tests)
 make lint       # run linter
 make format     # format code
 make typecheck  # run type checker
 make check      # lint + typecheck + test
 make all        # format + check
 ```
+
+CI runs `make check` on every push to main and on pull requests.
 
 ## Architecture
 
