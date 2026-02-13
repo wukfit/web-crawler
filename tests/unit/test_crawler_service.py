@@ -497,9 +497,7 @@ class TestMaxPages:
         responses: dict[str, HttpResponse] = {
             "https://example.com": html_response(
                 "https://example.com",
-                "".join(
-                    f'<a href="https://example.com/{i}">{i}</a>' for i in range(5)
-                ),
+                "".join(f'<a href="https://example.com/{i}">{i}</a>' for i in range(5)),
             ),
         }
         for i in range(5):
@@ -517,9 +515,7 @@ class TestMaxPages:
         responses: dict[str, HttpResponse] = {
             "https://example.com": html_response(
                 "https://example.com",
-                "".join(
-                    f'<a href="https://example.com/{i}">{i}</a>' for i in range(5)
-                ),
+                "".join(f'<a href="https://example.com/{i}">{i}</a>' for i in range(5)),
             ),
         }
         for i in range(5):
