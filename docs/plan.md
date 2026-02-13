@@ -11,11 +11,11 @@ CLI (typer) → CrawlerService → HTTPClient (httpx) → HTMLParser (beautifuls
 ## Steps
 
 ### Step 1: Parser (`crawler/parser.py`) — DONE
-- `extract_urls(html, base_url)` — extract URLs from `<a>`, `<img>`, `<link>`, `<script>`, `<source>`, `<video>`, `<audio>`
+- `extract_urls(html, base_url)` — extract URLs from all standard HTML resource tags (`a`, `area`, `audio`, `embed`, `iframe`, `img`, `link`, `script`, `source`, `track`, `video`)
 - `normalise_url(url)` — strip fragments and trailing slashes
 - Multi-attribute tag support (`<video src poster>`) via `dict[str, list[str]]`
 - Input validation at module boundary, early return for empty HTML
-- 25 unit tests covering all behaviours
+- 29 unit tests covering all behaviours
 
 ### Step 2: HTTP Client (`http/client.py`) — DONE
 - `HttpClient` Protocol + `HttpxClient` implementation

@@ -116,7 +116,7 @@ Plain URLs to stdout, one per line. Easy to pipe to `wc -l`, `sort`, `grep`, or 
 ## 2026-02-12: Crawler Improvements
 
 ### Parser: extract all resource URLs
-Renamed `extract_links` → `extract_urls`. Now extracts URLs from `<a href>`, `<img src>`, `<link href>`, `<script src>`, `<source src>`, `<video src>`, `<audio src>` via a `_TAG_ATTRS` mapping dict. Removed domain filtering from parser — it's crawl policy, not parsing logic.
+Renamed `extract_links` → `extract_urls`. Extracts URLs from all standard HTML resource tags via a `_TAG_ATTRS` mapping dict. Coverage validated against the [WHATWG HTML standard](https://html.spec.whatwg.org/multipage/indices.html) list of URL-bearing attributes. Parsed: `a[href]`, `area[href]`, `audio[src]`, `embed[src]`, `iframe[src]`, `img[src]`, `link[href]`, `script[src]`, `source[src]`, `track[src]`, `video[src, poster]`. Excluded with rationale: `srcset` (complex format), `form[action]`/`formaction` (POST semantics), `cite` (metadata), `object[data]` (legacy), `base[href]` (resolution directive). Removed domain filtering from parser — it's crawl policy, not parsing logic.
 
 ### Service: domain filtering moved from parser
 `is_same_domain` moved to the service layer. Parser returns all URLs found; service filters same-domain URLs for the crawl queue. `CrawlerResult.links` contains all URLs (including external) — matching the brief's "all the URLs it finds on that page".
@@ -152,8 +152,13 @@ Changed `_TAG_ATTRS` from `dict[str, str]` to `dict[str, list[str]]` to support 
 ### Bot blocking
 Some websites (e.g. StackOverflow, many Cloudflare-protected sites) block automated crawlers even with a legitimate `User-Agent` header. The current implementation handles this gracefully — `FetchError` is logged to stderr and the crawl continues to other pages. More sophisticated anti-bot measures (JavaScript challenges, CAPTCHAs, rate-based blocking) are out of scope for this project.
 
-### srcset attribute
-The HTML `srcset` attribute (`<img>` and `<source>`) contains comma-separated URL entries with width/pixel-density descriptors (e.g. `image-480w.jpg 480w, image-800w.jpg 800w`). This requires dedicated parsing logic beyond simple attribute extraction. Deferred — the current `_TAG_ATTRS` approach handles single-URL attributes cleanly.
+### Unparsed URL attributes
+Compared against the WHATWG HTML standard, the following URL-bearing attributes are intentionally excluded:
+- **`srcset`** (`img`, `source`) — comma-separated entries with width/pixel-density descriptors (e.g. `image-480w.jpg 480w`). Requires dedicated parsing beyond simple attribute extraction.
+- **`action`** (`form`), **`formaction`** (`button`, `input`) — forms imply user interaction. Submitting without expected POST body could trigger server-side effects.
+- **`cite`** (`blockquote`, `del`, `ins`, `q`) — attribution metadata, not a navigable resource.
+- **`data`** (`object`) — legacy plugin content, rarely relevant in modern HTML.
+- **`href`** on `base` — changes URL resolution base for the document, not a resource URL itself.
 
 ### Large binary responses
 `response.text` materialises the entire response body. For large binary files (PDFs, images) this is wasteful. A future optimisation: send a HEAD request to check `content-type` before fetching the full body. Deferred — not a blocker for correctness.
@@ -161,11 +166,16 @@ The HTML `srcset` attribute (`<img>` and `<source>`) contains comma-separated UR
 ### Single-domain constraint
 The crawler only follows links within the exact same hostname (not subdomains). `blog.example.com` is treated as external to `example.com`. This is by design per the brief, but could be made configurable.
 
+### Security considerations
+Crawled URLs are printed directly to stdout and stderr. The main attack vectors and their status:
+- **XSS**: Not applicable — no browser context, URLs are plain text output.
+- **SSRF**: Mitigated — `is_same_domain` prevents following links to internal IPs, localhost, or cloud metadata endpoints. The crawler only fetches URLs matching the start URL's hostname.
+- **Command/SQL injection**: Not applicable — URLs are never passed to shell commands or database queries.
+- **Scheme attacks** (`file:`, `javascript:`, `data:`): Mitigated — parser allowlists `http`/`https` only.
+- **Terminal escape injection**: Not mitigated — URLs containing ANSI escape sequences (e.g. `\x1b[2J`) are printed without sanitisation. A malicious page could craft HTML entity-encoded URLs that decode to terminal control characters. In practice, URL percent-encoding limits this, but BeautifulSoup's HTML entity decoding could produce raw escape bytes. A future fix: strip control characters (codepoints < 0x20 except `\t`, `\n`) before printing.
+
 ### JavaScript-rendered content
 The crawler parses raw HTML without executing JavaScript. Pages that render content client-side (SPAs, React/Next.js CSR) will appear to have no links in their `<body>`. This is common with modern frameworks — the initial HTML is a shell and content is populated by JavaScript at runtime. Server-side rendered (SSR) pages may also return different HTML to the crawler vs a browser depending on User-Agent detection. Discovered during testing against a Next.js site (getharley.com) where the `<main>` tag was empty in the raw HTML.
-
-### Form action URLs
-`<form action="/submit">` contains URLs but is excluded from extraction. Forms imply user interaction — submitting a form without the expected POST body could trigger errors or unintended side effects on the server. A crawler should only follow safe GET-like navigation (links, resources), not endpoints that expect form submissions.
 
 ## Development Process
 

@@ -1,6 +1,6 @@
 # Web Crawler
 
-CLI web crawler that discovers and prints all URLs found on each page within a single domain. Results stream to stdout as pages are crawled — no waiting for the full crawl to finish.
+CLI web crawler that discovers and prints all URLs found on each page within a single domain. Results stream to stdout as pages are crawled. Any crawl errors are stderr as they are encountered.
 
 ## Setup
 
@@ -38,24 +38,39 @@ https://example.com/about
 
 1. Fetches and parses `robots.txt` to determine which paths are allowed
 2. Spawns concurrent async workers that pull URLs from a shared queue
-3. For each HTML page, extracts all URLs (`<a>`, `<img>`, `<link>`, `<script>`, `<source>`, `<video>`, `<audio>`)
+3. For each HTML page, extracts URLs from all standard resource tags (see table below)
 4. Streams results to stdout immediately as each page completes
 5. Queues newly discovered same-domain URLs for further crawling
 6. Skips already-visited URLs, non-HTML responses, and robots.txt-disallowed paths
 
-### Limitations
+### HTML URL attribute coverage
+
+Compared against the [WHATWG HTML standard](https://html.spec.whatwg.org/multipage/indices.html) list of URL-bearing attributes:
+
+| Attribute | Element(s) | Parsed? | Notes |
+|---|---|---|---|
+| `href` | `a`, `area`, `link` | Yes | |
+| `src` | `img`, `script`, `source`, `video`, `audio`, `iframe`, `embed`, `track` | Yes | |
+| `poster` | `video` | Yes | |
+| `srcset` | `img`, `source` | No | Complex comma+descriptor format requires dedicated parsing |
+| `action` | `form` | No | Forms imply POST/user interaction, not safe GET navigation |
+| `formaction` | `button`, `input` | No | Same concern as `action` |
+| `cite` | `blockquote`, `del`, `ins`, `q` | No | Attribution metadata, not a navigable resource |
+| `data` | `object` | No | Legacy plugin content (`<object>`), rarely relevant |
+| `href` | `base` | No | Changes URL resolution base, not a resource URL |
+
+### Other limitations
 
 - **Bot protection**: Sites with Cloudflare, JavaScript challenges, or CAPTCHAs will block the crawler. Failed fetches are logged to stderr and the crawl continues.
 - **Single domain only**: Subdomains (e.g. `blog.example.com`) are treated as external.
-- **srcset not parsed**: The `srcset` attribute (responsive images) uses a complex comma+descriptor format that requires dedicated parsing. Deferred.
 - **Full body fetch**: Binary files (PDFs, images) are fully downloaded before being identified as non-HTML. A HEAD-first optimisation is possible but not implemented.
 - **JS-rendered content**: Pages that render via JavaScript (SPAs, React/Next.js CSR) will have no discoverable links in the body. The crawler parses raw HTML only.
-- **Form actions excluded**: `<form action>` URLs are not extracted — forms imply POST/user interaction, not safe GET navigation.
+- **Terminal escape injection**: URLs containing ANSI escape sequences are printed to stdout without sanitisation. A malicious page could craft URLs that manipulate terminal display. Mitigated in practice by URL percent-encoding, but not guaranteed for all HTML parsers/entities.
 
 ## Development
 
 ```bash
-make test       # run tests (60 tests)
+make test       # run tests (64 tests)
 make lint       # run linter
 make format     # format code
 make typecheck  # run type checker
@@ -79,8 +94,8 @@ Each layer depends only on the layer below. The HTTP client is injectable via Pr
 ## Tools & AI Disclosure
 
 - **IDE**: VSCode with Claude Code extension
-- **AI**: Claude (Anthropic) via Claude Code — collaborative pair-programming partner. Developer reviewed all code, challenged AI suggestions, and made architectural decisions. AI was useful for Python-specific idioms (async generators, Protocol types, pytest patterns) given the developer's Java/Go/TypeScript background.
-- **Domain knowledge**: Developer's web standards experience (HTML, URL resolution, robots.txt) guided feature scope. Python library docs (httpx, beautifulsoup4, pydantic-settings) read independently.
+- **AI**: Claude (Anthropic) via Claude Code — collaborative pair-programming partner. I reviewed all code, challenged AI suggestions, and made architectural decisions. AI was useful for Python-specific idioms (async generators, Protocol types, pytest patterns) given the my Java/Go/TypeScript background.
+- **Domain knowledge**: My prior web standards experience (HTML, URL resolution, robots.txt) guided feature scope. Python library docs (httpx, beautifulsoup4, pydantic-settings) read independently.
 - **Methodology**: Strict TDD red-green-refactor, code review after each step
 
 ## Documentation
