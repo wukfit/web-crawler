@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
 from urllib.robotparser import RobotFileParser
@@ -49,23 +50,23 @@ class CrawlerService:
         rp.parse([])
         return rp
 
-    async def crawl(self, start_url: str) -> list[CrawlerResult]:
+    async def crawl(self, start_url: str) -> AsyncIterator[CrawlerResult]:
         robots = await self._fetch_robots(start_url)
         visited: set[str] = set()
-        results: list[CrawlerResult] = []
-        queue: asyncio.Queue[str] = asyncio.Queue()
+        url_queue: asyncio.Queue[str] = asyncio.Queue()
+        result_queue: asyncio.Queue[CrawlerResult | None] = asyncio.Queue()
         semaphore = asyncio.Semaphore(self._max_concurrency)
         in_progress = 0
         done_event = asyncio.Event()
 
         visited.add(start_url)
-        await queue.put(start_url)
+        await url_queue.put(start_url)
 
         async def worker() -> None:
             nonlocal in_progress
             while True:
                 try:
-                    url = queue.get_nowait()
+                    url = url_queue.get_nowait()
                 except asyncio.QueueEmpty:
                     if in_progress == 0:
                         return
@@ -94,7 +95,7 @@ class CrawlerService:
                             continue
 
                         links = extract_urls(response.body, url)
-                        results.append(CrawlerResult(url=url, links=links))
+                        await result_queue.put(CrawlerResult(url=url, links=links))
 
                         for link in links:
                             if (
@@ -103,12 +104,28 @@ class CrawlerService:
                                 and robots.can_fetch(self._user_agent, link)
                             ):
                                 visited.add(link)
-                                await queue.put(link)
+                                await url_queue.put(link)
                 finally:
                     in_progress -= 1
                     done_event.set()
 
-        workers = [asyncio.create_task(worker()) for _ in range(self._max_concurrency)]
-        await asyncio.gather(*workers)
+        async def run_workers() -> None:
+            worker_tasks = [
+                asyncio.create_task(worker()) for _ in range(self._max_concurrency)
+            ]
+            try:
+                await asyncio.gather(*worker_tasks)
+            finally:
+                for t in worker_tasks:
+                    t.cancel()
+                await result_queue.put(None)
 
-        return results
+        task = asyncio.create_task(run_workers())
+
+        while True:
+            result = await result_queue.get()
+            if result is None:
+                break
+            yield result
+
+        await task

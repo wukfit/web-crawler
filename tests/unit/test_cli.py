@@ -1,6 +1,6 @@
 """Tests for CLI."""
 
-from unittest.mock import AsyncMock
+from collections.abc import AsyncIterator
 
 from typer.testing import CliRunner
 
@@ -10,23 +10,23 @@ from web_crawler.crawler.service import CrawlerResult
 runner = CliRunner()
 
 
+async def fake_crawl(self: object, url: str) -> AsyncIterator[CrawlerResult]:
+    yield CrawlerResult(
+        url="https://example.com",
+        links=[
+            "https://example.com/about",
+            "https://example.com/logo.png",
+        ],
+    )
+    yield CrawlerResult(
+        url="https://example.com/about",
+        links=["https://example.com"],
+    )
+
+
 class TestCli:
     def test_crawl_prints_per_page_output(self, monkeypatch):
-        results = [
-            CrawlerResult(
-                url="https://example.com",
-                links=[
-                    "https://example.com/about",
-                    "https://example.com/logo.png",
-                ],
-            ),
-            CrawlerResult(
-                url="https://example.com/about",
-                links=["https://example.com"],
-            ),
-        ]
-        mock_crawl = AsyncMock(return_value=results)
-        monkeypatch.setattr("web_crawler.cli.CrawlerService.crawl", mock_crawl)
+        monkeypatch.setattr("web_crawler.cli.CrawlerService.crawl", fake_crawl)
 
         result = runner.invoke(app, ["https://example.com"])
 

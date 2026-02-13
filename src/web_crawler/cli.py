@@ -28,11 +28,11 @@ async def _crawl(url: str) -> None:
     settings = HttpSettings()
     async with HttpxClient(settings=settings) as client:
         service = CrawlerService(client, user_agent=settings.user_agent)
-        results = await service.crawl(url)
-
-    for i, result in enumerate(results):
-        if i > 0:
-            typer.echo()
-        typer.echo(result.url)
-        for link in result.links:
-            typer.echo(f"  {link}")
+        first = True
+        async for result in service.crawl(url):
+            if not first:
+                typer.echo()
+            first = False
+            typer.echo(result.url)
+            for link in result.links:
+                typer.echo(f"  {link}")

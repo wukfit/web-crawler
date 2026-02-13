@@ -3,6 +3,8 @@
 import asyncio
 import logging
 
+import pytest
+
 from web_crawler.crawler.service import CrawlerService, is_same_domain
 from web_crawler.http.client import FetchError, HttpResponse
 
@@ -42,7 +44,7 @@ class TestCrawlerService:
         )
         service = CrawlerService(client)
 
-        results = await service.crawl("https://example.com")
+        results = [r async for r in service.crawl("https://example.com")]
 
         assert len(results) == 1
         assert results[0].url == "https://example.com"
@@ -63,7 +65,7 @@ class TestCrawlerService:
         )
         service = CrawlerService(client)
 
-        results = await service.crawl("https://example.com")
+        results = [r async for r in service.crawl("https://example.com")]
 
         urls = {r.url for r in results}
         assert urls == {
@@ -94,7 +96,7 @@ class TestCrawlerService:
         )
         service = CrawlerService(client)
 
-        results = await service.crawl("https://example.com")
+        results = [r async for r in service.crawl("https://example.com")]
 
         assert len(results) == 2
         assert all(c == 1 for c in fetch_count.values())
@@ -116,7 +118,7 @@ class TestCrawlerService:
         )
         service = CrawlerService(client)
 
-        results = await service.crawl("https://example.com")
+        results = [r async for r in service.crawl("https://example.com")]
 
         urls = {r.url for r in results}
         assert "https://example.com/file.pdf" not in urls
@@ -137,7 +139,7 @@ class TestCrawlerService:
         )
         service = CrawlerService(client)
 
-        results = await service.crawl("https://example.com")
+        results = [r async for r in service.crawl("https://example.com")]
 
         urls = {r.url for r in results}
         assert "https://example.com/gone" not in urls
@@ -159,7 +161,7 @@ class TestCrawlerService:
         )
         service = CrawlerService(client)
 
-        results = await service.crawl("https://example.com")
+        results = [r async for r in service.crawl("https://example.com")]
 
         urls = {r.url for r in results}
         assert "https://example.com" in urls
@@ -192,9 +194,50 @@ class TestCrawlerService:
         client = SlowClient(responses)
         service = CrawlerService(client, max_concurrency=2)
 
-        await service.crawl("https://example.com")
+        [r async for r in service.crawl("https://example.com")]
 
         assert peak_concurrent <= 2
+
+    async def test_cancels_workers_on_unexpected_error(self):
+        slow_fetch_cancelled = False
+        slow_started = asyncio.Event()
+
+        class BuggyClient(FakeHttpClient):
+            async def fetch(self, url: str) -> HttpResponse:
+                nonlocal slow_fetch_cancelled
+                if url == "https://example.com/slow":
+                    slow_started.set()
+                    try:
+                        await asyncio.sleep(10)
+                    except asyncio.CancelledError:
+                        slow_fetch_cancelled = True
+                        raise
+                    return await super().fetch(url)
+                if url == "https://example.com/boom":
+                    await slow_started.wait()
+                    raise RuntimeError("unexpected bug")
+                return await super().fetch(url)
+
+        client = BuggyClient(
+            {
+                "https://example.com": html_response(
+                    "https://example.com",
+                    '<a href="https://example.com/slow">Slow</a>'
+                    '<a href="https://example.com/boom">Boom</a>',
+                ),
+                "https://example.com/slow": html_response(
+                    "https://example.com/slow",
+                    "<html>Slow</html>",
+                ),
+            }
+        )
+        service = CrawlerService(client, max_concurrency=5)
+
+        with pytest.raises(RuntimeError, match="unexpected bug"):
+            [r async for r in service.crawl("https://example.com")]
+
+        await asyncio.sleep(0.01)
+        assert slow_fetch_cancelled
 
     async def test_stores_all_links_including_external(self):
         client = FakeHttpClient(
@@ -212,7 +255,7 @@ class TestCrawlerService:
         )
         service = CrawlerService(client)
 
-        results = await service.crawl("https://example.com")
+        results = [r async for r in service.crawl("https://example.com")]
 
         start_result = next(r for r in results if r.url == "https://example.com")
         assert "https://example.com/about" in start_result.links
@@ -229,7 +272,7 @@ class TestCrawlerService:
         )
         service = CrawlerService(client)
 
-        results = await service.crawl("https://example.com")
+        results = [r async for r in service.crawl("https://example.com")]
 
         urls = {r.url for r in results}
         assert urls == {"https://example.com"}
@@ -247,7 +290,7 @@ class TestCrawlerService:
         service = CrawlerService(client)
 
         with caplog.at_level(logging.WARNING):
-            await service.crawl("https://example.com")
+            [r async for r in service.crawl("https://example.com")]
 
         assert any("https://example.com/broken" in r.message for r in caplog.records)
 
@@ -268,7 +311,7 @@ class TestCrawlerService:
         service = CrawlerService(client)
 
         with caplog.at_level(logging.WARNING):
-            await service.crawl("https://example.com")
+            [r async for r in service.crawl("https://example.com")]
 
         assert any(
             "404" in r.message and "https://example.com/gone" in r.message
@@ -315,7 +358,7 @@ class TestRobotsTxt:
         )
         service = CrawlerService(client)
 
-        results = await service.crawl("https://example.com")
+        results = [r async for r in service.crawl("https://example.com")]
 
         urls = {r.url for r in results}
         assert "https://example.com/public" in urls
@@ -342,7 +385,7 @@ class TestRobotsTxt:
         )
         service = CrawlerService(client)
 
-        results = await service.crawl("https://example.com")
+        results = [r async for r in service.crawl("https://example.com")]
 
         urls = {r.url for r in results}
         assert "https://example.com/page" in urls
@@ -363,7 +406,7 @@ class TestRobotsTxt:
         )
         service = CrawlerService(client)
 
-        results = await service.crawl("https://example.com")
+        results = [r async for r in service.crawl("https://example.com")]
 
         urls = {r.url for r in results}
         assert "https://example.com/page" in urls
@@ -392,7 +435,7 @@ class TestRobotsTxt:
         )
         service = CrawlerService(client, user_agent="my-bot")
 
-        results = await service.crawl("https://example.com")
+        results = [r async for r in service.crawl("https://example.com")]
 
         urls = {r.url for r in results}
         assert "https://example.com/blocked" not in urls
@@ -423,7 +466,7 @@ class TestRobotsTxt:
         )
         service = CrawlerService(client)
 
-        results = await service.crawl("https://example.com:8080")
+        results = [r async for r in service.crawl("https://example.com:8080")]
 
         urls = {r.url for r in results}
         assert "https://example.com:8080/public" in urls
