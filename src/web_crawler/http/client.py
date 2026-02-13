@@ -48,20 +48,24 @@ class HttpxClient:
             raise ValueError("url must not be empty")
 
         try:
-            response = await self._client.get(url)
+            async with self._client.stream("GET", url) as response:
+                content_type = response.headers.get("content-type", "")
+                if "text/html" not in content_type:
+                    return HttpResponse(
+                        url=str(response.url),
+                        status_code=response.status_code,
+                        body="",
+                        content_type=content_type,
+                    )
+                await response.aread()
+                return HttpResponse(
+                    url=str(response.url),
+                    status_code=response.status_code,
+                    body=response.text,
+                    content_type=content_type,
+                )
         except httpx.HTTPError as exc:
             raise FetchError(str(exc)) from exc
-
-        # TODO: response.text materialises the entire body in memory. For large
-        # binary responses (e.g. 50MB PDF) this is wasteful. A HEAD-request
-        # optimisation in the service layer could check content-type before
-        # fetching the full body.
-        return HttpResponse(
-            url=str(response.url),
-            status_code=response.status_code,
-            body=response.text,
-            content_type=response.headers.get("content-type", ""),
-        )
 
     async def close(self) -> None:
         await self._client.aclose()

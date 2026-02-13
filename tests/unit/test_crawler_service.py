@@ -429,6 +429,102 @@ class TestCrawlerService:
         )
 
 
+class TestRateLimiting:
+    async def test_rate_limiter_called_before_each_fetch(self):
+        acquire_count = 0
+
+        class FakeRateLimiter:
+            async def acquire(self) -> None:
+                nonlocal acquire_count
+                acquire_count += 1
+
+            def set_rate(self, rate: float) -> None:
+                pass
+
+        client = FakeHttpClient(
+            {
+                "https://example.com": html_response(
+                    "https://example.com",
+                    '<a href="https://example.com/a">A</a>',
+                ),
+                "https://example.com/a": html_response(
+                    "https://example.com/a",
+                    "<html>A</html>",
+                ),
+            }
+        )
+        service = CrawlerService(client, rate_limiter=FakeRateLimiter())
+
+        [r async for r in service.crawl("https://example.com")]
+
+        # robots.txt + start page + /a = 3 fetches
+        assert acquire_count == 3
+
+    async def test_crawl_delay_overrides_rate_limiter(self):
+        set_rate_calls: list[float] = []
+
+        class TrackingRateLimiter:
+            async def acquire(self) -> None:
+                pass
+
+            def set_rate(self, rate: float) -> None:
+                set_rate_calls.append(rate)
+
+        robots_txt = "User-agent: *\nCrawl-delay: 2\n"
+        client = FakeHttpClient(
+            {
+                "https://example.com/robots.txt": HttpResponse(
+                    url="https://example.com/robots.txt",
+                    status_code=200,
+                    body=robots_txt,
+                    content_type="text/plain",
+                ),
+                "https://example.com": html_response(
+                    "https://example.com",
+                    "<html>Home</html>",
+                ),
+            }
+        )
+        service = CrawlerService(client, rate_limiter=TrackingRateLimiter())
+
+        [r async for r in service.crawl("https://example.com")]
+
+        # Crawl-delay: 2 → set_rate(0.5)
+        assert set_rate_calls == [0.5]
+
+    async def test_crawl_delay_zero_does_not_crash(self):
+        set_rate_calls: list[float] = []
+
+        class TrackingRateLimiter:
+            async def acquire(self) -> None:
+                pass
+
+            def set_rate(self, rate: float) -> None:
+                set_rate_calls.append(rate)
+
+        robots_txt = "User-agent: *\nCrawl-delay: 0\n"
+        client = FakeHttpClient(
+            {
+                "https://example.com/robots.txt": HttpResponse(
+                    url="https://example.com/robots.txt",
+                    status_code=200,
+                    body=robots_txt,
+                    content_type="text/plain",
+                ),
+                "https://example.com": html_response(
+                    "https://example.com",
+                    "<html>Home</html>",
+                ),
+            }
+        )
+        service = CrawlerService(client, rate_limiter=TrackingRateLimiter())
+
+        [r async for r in service.crawl("https://example.com")]
+
+        # Crawl-delay: 0 means no delay — rate should not be overridden
+        assert set_rate_calls == []
+
+
 class TestIsSameDomain:
     def test_same_domain(self):
         assert is_same_domain("https://example.com/about", "https://example.com")

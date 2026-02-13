@@ -48,3 +48,16 @@ class TestTokenBucket:
         bucket.set_rate(2.0)
         with pytest.raises(asyncio.TimeoutError):
             await asyncio.wait_for(bucket.acquire(), timeout=0.1)
+
+    def test_rejects_zero_rate(self):
+        with pytest.raises(ValueError, match="rate"):
+            TokenBucket(rate=0.0)
+
+    def test_rejects_negative_rate(self):
+        with pytest.raises(ValueError, match="rate"):
+            TokenBucket(rate=-1.0)
+
+    def test_set_rate_rejects_zero(self):
+        bucket = TokenBucket(rate=10.0)
+        with pytest.raises(ValueError, match="rate"):
+            bucket.set_rate(0.0)

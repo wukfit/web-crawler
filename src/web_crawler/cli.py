@@ -6,6 +6,7 @@ import sys
 
 import typer
 
+from web_crawler.crawler.rate_limiter import TokenBucket
 from web_crawler.crawler.service import CrawlerService
 from web_crawler.http.client import HttpxClient
 from web_crawler.http.settings import HttpSettings
@@ -27,7 +28,12 @@ def main(url: str = typer.Argument(..., help="URL to crawl")) -> None:
 async def _crawl(url: str) -> None:
     settings = HttpSettings()
     async with HttpxClient(settings=settings) as client:
-        service = CrawlerService(client, user_agent=settings.user_agent)
+        rate_limiter = TokenBucket(rate=settings.requests_per_second)
+        service = CrawlerService(
+            client,
+            user_agent=settings.user_agent,
+            rate_limiter=rate_limiter,
+        )
         first = True
         async for result in service.crawl(url):
             if not first:

@@ -8,6 +8,8 @@ class TokenBucket:
     """Rate limiter using the token bucket algorithm."""
 
     def __init__(self, rate: float) -> None:
+        if rate <= 0:
+            raise ValueError("rate must be positive")
         self._rate = rate
         self._max_tokens = rate
         self._tokens = rate
@@ -16,6 +18,8 @@ class TokenBucket:
 
     def set_rate(self, rate: float) -> None:
         """Update the token refill rate and burst size."""
+        if rate <= 0:
+            raise ValueError("rate must be positive")
         self._rate = rate
         self._max_tokens = rate
 
