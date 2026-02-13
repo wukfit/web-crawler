@@ -37,11 +37,15 @@ class CrawlerService:
         max_concurrency: int = 5,
         user_agent: str = "*",
         rate_limiter: RateLimiter | None = None,
+        max_depth: int | None = None,
+        max_pages: int | None = None,
     ) -> None:
         self._client = client
         self._max_concurrency = max_concurrency
         self._user_agent = user_agent
         self._rate_limiter = rate_limiter
+        self._max_depth = max_depth
+        self._max_pages = max_pages
 
     async def _fetch(self, url: str) -> HttpResponse:
         if self._rate_limiter is not None:
@@ -72,21 +76,22 @@ class CrawlerService:
                 self._rate_limiter.set_rate(1.0 / float(crawl_delay))
 
         visited: set[str] = set()
-        url_queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
+        url_queue: asyncio.Queue[tuple[str, str, int]] = asyncio.Queue()
         result_queue: asyncio.Queue[CrawlerResult | None] = asyncio.Queue()
         semaphore = asyncio.Semaphore(self._max_concurrency)
         in_progress = 0
+        pages_crawled = 0
         done_event = asyncio.Event()
 
         start_url = normalise_url(start_url)
         visited.add(start_url)
-        await url_queue.put((start_url, ""))
+        await url_queue.put((start_url, "", 0))
 
         async def worker() -> None:
-            nonlocal in_progress
+            nonlocal in_progress, pages_crawled
             while True:
                 try:
-                    url, parent_url = url_queue.get_nowait()
+                    url, parent_url, depth = url_queue.get_nowait()
                 except asyncio.QueueEmpty:
                     if in_progress == 0:
                         return
@@ -96,6 +101,9 @@ class CrawlerService:
 
                 in_progress += 1
                 try:
+                    if self._max_pages is not None and pages_crawled >= self._max_pages:
+                        continue
+
                     async with semaphore:
                         try:
                             response = await self._fetch(url)
@@ -127,18 +135,29 @@ class CrawlerService:
                             continue
 
                         links = extract_urls(response.body, final_url)
+                        pages_crawled += 1
                         await result_queue.put(
                             CrawlerResult(url=final_url, links=links)
                         )
+
+                        if (
+                            self._max_pages is not None
+                            and pages_crawled >= self._max_pages
+                        ):
+                            continue
 
                         for link in links:
                             if (
                                 link not in visited
                                 and is_same_domain(link, start_url)
                                 and robots.can_fetch(self._user_agent, link)
+                                and (
+                                    self._max_depth is None
+                                    or depth + 1 <= self._max_depth
+                                )
                             ):
                                 visited.add(link)
-                                await url_queue.put((link, final_url))
+                                await url_queue.put((link, final_url, depth + 1))
                 finally:
                     in_progress -= 1
                     done_event.set()
