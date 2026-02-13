@@ -129,3 +129,5 @@ The layered architecture means the crawler core stays the same — just swap wha
 - [docs/decisions.md](docs/decisions.md) — architecture decisions, trade-offs, limitations, development process
 - [docs/plan.md](docs/plan.md) — implementation plan and step-by-step progress
 - [docs/initial-brief.md](docs/initial-brief.md) — original task brief and planning discussion
+- [docs/review.md](docs/review.md) — self-review of the codebase against the brief
+- [docs/code-review-skill.md](docs/code-review-skill.md) — the Claude Code skill used for code review
