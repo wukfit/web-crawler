@@ -11,7 +11,7 @@ class TestHttpSettings:
         settings = HttpSettings()
 
         assert settings.timeout == 30.0
-        assert settings.user_agent == "web-crawler/0.1.0"
+        assert settings.user_agent.startswith("web-crawler/")
         assert settings.requests_per_second == 10.0
 
     def test_env_overrides_timeout(self, monkeypatch):

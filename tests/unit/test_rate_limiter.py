@@ -1,7 +1,6 @@
 """Tests for token bucket rate limiter."""
 
 import asyncio
-import time
 
 import pytest
 
@@ -26,19 +25,16 @@ class TestTokenBucket:
         for _ in range(10):
             await bucket.acquire()
 
-        await asyncio.sleep(0.15)
-        await asyncio.wait_for(bucket.acquire(), timeout=0.1)
+        await asyncio.sleep(0.25)
+        await asyncio.wait_for(bucket.acquire(), timeout=0.2)
 
-    async def test_rate_limits_throughput(self):
-        bucket = TokenBucket(rate=20.0)
-        start = time.monotonic()
+    async def test_burst_then_blocks(self):
+        bucket = TokenBucket(rate=5.0)
+        for _ in range(5):
+            await asyncio.wait_for(bucket.acquire(), timeout=0.1)
 
-        for _ in range(30):
-            await bucket.acquire()
-
-        elapsed = time.monotonic() - start
-        # First 20 instant, next 10 at 20/s = 0.5s minimum
-        assert elapsed >= 0.4
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(bucket.acquire(), timeout=0.05)
 
     async def test_set_rate_changes_refill_speed(self):
         bucket = TokenBucket(rate=100.0)

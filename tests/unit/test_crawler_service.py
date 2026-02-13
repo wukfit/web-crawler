@@ -266,7 +266,10 @@ class TestCrawlerService:
         with pytest.raises(RuntimeError, match="unexpected bug"):
             [r async for r in service.crawl("https://example.com")]
 
-        await asyncio.sleep(0.01)
+        for _ in range(50):
+            if slow_fetch_cancelled:
+                break
+            await asyncio.sleep(0.01)
         assert slow_fetch_cancelled
 
     async def test_iterator_abandonment_cancels_workers(self):
@@ -870,3 +873,29 @@ class TestRobotsTxt:
         urls = {r.url for r in results}
         assert "https://example.com:8080/public" in urls
         assert "https://example.com:8080/secret" not in urls
+
+    async def test_crawls_when_robots_txt_returns_500(self):
+        client = FakeHttpClient(
+            {
+                "https://example.com/robots.txt": HttpResponse(
+                    url="https://example.com/robots.txt",
+                    status_code=500,
+                    body="Server Error",
+                    content_type="text/plain",
+                ),
+                "https://example.com": html_response(
+                    "https://example.com",
+                    '<a href="https://example.com/page">Page</a>',
+                ),
+                "https://example.com/page": html_response(
+                    "https://example.com/page",
+                    "<html>Page</html>",
+                ),
+            }
+        )
+        service = CrawlerService(client)
+
+        results = [r async for r in service.crawl("https://example.com")]
+
+        urls = {r.url for r in results}
+        assert "https://example.com/page" in urls

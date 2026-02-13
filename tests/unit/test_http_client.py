@@ -4,7 +4,7 @@ import pytest
 from web_crawler.http.client import FetchError, HttpxClient
 from web_crawler.http.settings import HttpSettings
 
-DEFAULTS = HttpSettings(timeout=30.0, user_agent="web-crawler/0.1.0")
+DEFAULTS = HttpSettings()
 
 
 def make_client(
@@ -97,11 +97,12 @@ class TestHttpxClient:
         assert response.status_code == 404
         assert response.body == "Not Found"
 
-    async def test_close_shuts_down_client(self):
+    async def test_close_prevents_further_requests(self):
         transport = httpx.MockTransport(html_response)
         client = make_client(transport)
         await client.close()
-        assert client._client.is_closed
+        with pytest.raises((FetchError, RuntimeError)):
+            await client.fetch("https://example.com")
 
     async def test_raises_on_empty_url(self):
         transport = httpx.MockTransport(html_response)

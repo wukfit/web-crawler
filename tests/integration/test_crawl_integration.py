@@ -110,3 +110,26 @@ class TestCrawlIntegration:
         urls = {r.url for r in results}
         for i in range(10):
             assert f"https://site.test/{i}" in urls
+
+    async def test_continues_when_linked_pages_return_errors(self):
+        transport = make_site(
+            {
+                "https://site.test/robots.txt": ("text/plain", ""),
+                "https://site.test": (
+                    "text/html",
+                    '<a href="/good">G</a><a href="/bad">B</a>',
+                ),
+                "https://site.test/good": (
+                    "text/html",
+                    "<p>OK</p>",
+                ),
+                # /bad returns 404 via make_site default
+            }
+        )
+        async with HttpxClient(transport=transport) as client:
+            service = CrawlerService(client)
+            results = [r async for r in service.crawl("https://site.test")]
+
+        urls = {r.url for r in results}
+        assert "https://site.test" in urls
+        assert "https://site.test/good" in urls
