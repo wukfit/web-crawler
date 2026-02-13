@@ -114,3 +114,23 @@ class TestHttpxClient:
         async with make_client(transport) as client:
             response = await client.fetch("https://example.com")
             assert response.status_code == 200
+
+    async def test_follows_redirects(self):
+        def redirect_transport(request: httpx.Request) -> httpx.Response:
+            if str(request.url) == "https://example.com/old":
+                return httpx.Response(
+                    302,
+                    headers={
+                        "location": "https://example.com/new",
+                        "content-type": "text/html",
+                    },
+                    request=request,
+                )
+            return html_response(request)
+
+        transport = httpx.MockTransport(redirect_transport)
+        async with make_client(transport) as client:
+            response = await client.fetch("https://example.com/old")
+
+        assert response.status_code == 200
+        assert response.url == "https://example.com/new"
