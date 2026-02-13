@@ -8,3 +8,4 @@ class HttpSettings(BaseSettings):
 
     timeout: float = 30.0
     user_agent: str = "web-crawler/0.1.0"
+    requests_per_second: float = 10.0
