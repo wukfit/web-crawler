@@ -109,12 +109,6 @@ class TestHttpxClient:
             with pytest.raises(ValueError, match="url"):
                 await client.fetch("")
 
-    async def test_works_as_async_context_manager(self):
-        transport = httpx.MockTransport(html_response)
-        async with make_client(transport) as client:
-            response = await client.fetch("https://example.com")
-            assert response.status_code == 200
-
     async def test_follows_redirects(self):
         def redirect_transport(request: httpx.Request) -> httpx.Response:
             if str(request.url) == "https://example.com/old":

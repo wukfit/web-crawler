@@ -77,6 +77,16 @@ class TestExtractUrls:
         result = extract_urls(html, "https://example.com")
         assert result == ["https://example.com/subs.vtt"]
 
+    def test_extracts_audio_src(self):
+        html = '<html><body><audio src="/song.mp3"></audio></body></html>'
+        result = extract_urls(html, "https://example.com")
+        assert result == ["https://example.com/song.mp3"]
+
+    def test_extracts_source_src(self):
+        html = '<html><body><video><source src="/video.webm"></video></body></html>'
+        result = extract_urls(html, "https://example.com")
+        assert result == ["https://example.com/video.webm"]
+
     def test_returns_empty_list_when_no_urls(self):
         html = "<html><body><p>No links here</p></body></html>"
         result = extract_urls(html, "https://example.com")
