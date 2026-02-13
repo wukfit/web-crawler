@@ -161,6 +161,12 @@ The HTML `srcset` attribute (`<img>` and `<source>`) contains comma-separated UR
 ### Single-domain constraint
 The crawler only follows links within the exact same hostname (not subdomains). `blog.example.com` is treated as external to `example.com`. This is by design per the brief, but could be made configurable.
 
+### JavaScript-rendered content
+The crawler parses raw HTML without executing JavaScript. Pages that render content client-side (SPAs, React/Next.js CSR) will appear to have no links in their `<body>`. This is common with modern frameworks — the initial HTML is a shell and content is populated by JavaScript at runtime. Server-side rendered (SSR) pages may also return different HTML to the crawler vs a browser depending on User-Agent detection. Discovered during testing against a Next.js site (getharley.com) where the `<main>` tag was empty in the raw HTML.
+
+### Form action URLs
+`<form action="/submit">` contains URLs but is excluded from extraction. Forms imply user interaction — submitting a form without the expected POST body could trigger errors or unintended side effects on the server. A crawler should only follow safe GET-like navigation (links, resources), not endpoints that expect form submissions.
+
 ## Development Process
 
 ### Methodology

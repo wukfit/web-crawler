@@ -49,6 +49,8 @@ https://example.com/about
 - **Single domain only**: Subdomains (e.g. `blog.example.com`) are treated as external.
 - **srcset not parsed**: The `srcset` attribute (responsive images) uses a complex comma+descriptor format that requires dedicated parsing. Deferred.
 - **Full body fetch**: Binary files (PDFs, images) are fully downloaded before being identified as non-HTML. A HEAD-first optimisation is possible but not implemented.
+- **JS-rendered content**: Pages that render via JavaScript (SPAs, React/Next.js CSR) will have no discoverable links in the body. The crawler parses raw HTML only.
+- **Form actions excluded**: `<form action>` URLs are not extracted — forms imply POST/user interaction, not safe GET navigation.
 
 ## Development
 
