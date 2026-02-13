@@ -111,6 +111,12 @@ The main changes here are per "job" rate limiting, robots.txt, and the visited s
 
 I would load test the capabilities of a single async process, but as per my thoughts above, having some kind of crawl job queue with job state persisted to disk (DB) is where I would go with this.
 
+### Deployment
+
+If moved to an API (e.g. FastAPI), Python deploys much like Java/Go/TypeScript. Serverless works via ASGI adapters like Mangum on Lambda, though the 15-minute timeout limits long crawls. EC2 with gunicorn behind nginx is an option but less common now.
+
+Containers on ECS/Fargate are the most natural fit. Unlike Go (single binary) or Java (fat JAR), Python ships an interpreter plus installed packages — a Dockerfile bundles the full runtime cleanly. Fargate also handles long-running crawl jobs without the Lambda timeout constraint.
+
 ### Addressing Current Limitations
 
 The biggest gap is JS-rendered content. A lot of modern sites are SPAs that return an empty shell and render everything client-side. I'd look at putting a headless browser (Playwright/Puppeteer) behind the `HttpClient` Protocol to handle these. That also helps with bot protection since a real browser session gets past most Cloudflare challenges. It's much slower and heavier on resources though, so I'd make it opt-in rather than the default.
