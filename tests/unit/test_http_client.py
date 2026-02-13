@@ -134,6 +134,23 @@ class TestHttpxClient:
         assert response.body == "<html><body>hello</body></html>"
         assert "text/html" in response.content_type
 
+    async def test_caps_body_at_max_size(self):
+        large_body = "<html>" + "x" * (11 * 1024 * 1024) + "</html>"
+
+        def large_response(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                text=large_body,
+                headers={"content-type": "text/html"},
+                request=request,
+            )
+
+        transport = httpx.MockTransport(large_response)
+        async with make_client(transport) as client:
+            response = await client.fetch("https://example.com")
+
+        assert len(response.body) <= 10 * 1024 * 1024
+
     async def test_follows_redirects(self):
         def redirect_transport(request: httpx.Request) -> httpx.Response:
             if str(request.url) == "https://example.com/old":

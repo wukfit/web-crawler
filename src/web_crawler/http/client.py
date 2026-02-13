@@ -25,6 +25,9 @@ class HttpClient(Protocol):
     async def close(self) -> None: ...
 
 
+MAX_BODY_SIZE = 10 * 1024 * 1024  # 10 MB
+
+
 class HttpxClient:
     """Async HTTP client backed by httpx."""
 
@@ -57,11 +60,22 @@ class HttpxClient:
                         body="",
                         content_type=content_type,
                     )
-                await response.aread()
+
+                chunks: list[bytes] = []
+                size = 0
+                async for chunk in response.aiter_bytes(chunk_size=8192):
+                    chunks.append(chunk)
+                    size += len(chunk)
+                    if size > MAX_BODY_SIZE:
+                        break
+
+                body = b"".join(chunks)[:MAX_BODY_SIZE].decode(
+                    response.charset_encoding or "utf-8", errors="replace"
+                )
                 return HttpResponse(
                     url=str(response.url),
                     status_code=response.status_code,
-                    body=response.text,
+                    body=body,
                     content_type=content_type,
                 )
         except httpx.HTTPError as exc:
