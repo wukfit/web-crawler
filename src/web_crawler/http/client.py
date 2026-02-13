@@ -38,6 +38,7 @@ class HttpxClient:
         self._client = httpx.AsyncClient(
             timeout=resolved.timeout,
             headers={"User-Agent": resolved.user_agent},
+            follow_redirects=True,
             transport=transport,
         )
 

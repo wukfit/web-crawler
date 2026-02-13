@@ -50,7 +50,7 @@ CLI (typer) → CrawlerService → HTTPClient (httpx) → HTMLParser (beautifuls
 
 - **cli.py**: Thin presentation layer. Parses args, delegates to service, formats output.
 - **crawler/service.py**: Orchestration. Manages URL queue, visited set, concurrency.
-- **crawler/parser.py**: Domain logic. Extracts links, resolves relative URLs, filters by domain.
+- **crawler/parser.py**: Domain logic. Extracts URLs from HTML, resolves relative URLs.
 - **http/client.py**: Infrastructure. HTTP requests, connection pooling, retry logic.
 
 Each layer depends only on the layer below it. The HTTP client is injectable, making the crawler testable without real HTTP calls.
@@ -112,3 +112,90 @@ Typer is synchronous. The crawler is async. `asyncio.run(_crawl(url))` bridges t
 
 ### Output format: one URL per line
 Plain URLs to stdout, one per line. Easy to pipe to `wc -l`, `sort`, `grep`, or other Unix tools. No JSON or structured output — keep it simple for v1.
+
+## 2026-02-12: Crawler Improvements
+
+### Parser: extract all resource URLs
+Renamed `extract_links` → `extract_urls`. Extracts URLs from all standard HTML resource tags via a `_TAG_ATTRS` mapping dict. Coverage validated against the [WHATWG HTML standard](https://html.spec.whatwg.org/multipage/indices.html) list of URL-bearing attributes. Parsed: `a[href]`, `area[href]`, `audio[src]`, `embed[src]`, `iframe[src]`, `img[src]`, `link[href]`, `script[src]`, `source[src]`, `track[src]`, `video[src, poster]`. Excluded with rationale: `srcset` (complex format), `form[action]`/`formaction` (POST semantics), `cite` (metadata), `object[data]` (legacy), `base[href]` (resolution directive). Removed domain filtering from parser — it's crawl policy, not parsing logic.
+
+### Service: domain filtering moved from parser
+`is_same_domain` moved to the service layer. Parser returns all URLs found; service filters same-domain URLs for the crawl queue. `CrawlerResult.links` contains all URLs (including external) — matching the brief's "all the URLs it finds on that page".
+
+### Service: robots.txt compliance
+Fetches `{scheme}://{netloc}/robots.txt` before crawling. Uses stdlib `urllib.robotparser.RobotFileParser` to check `can_fetch(user_agent, url)` before adding URLs to the crawl queue. Graceful fallback: missing (404) or unreachable robots.txt → allow everything. Uses `netloc` (not `hostname`) to preserve ports. The `user_agent` parameter defaults to `"*"` (wildcard) and is wired from `HttpSettings.user_agent` in the CLI.
+
+### Service: stderr logging for skipped pages
+Uses Python `logging` module. `FetchError` and non-200 responses log `WARNING` to stderr. Non-HTML responses are silently skipped (expected for images/PDFs). CLI configures `logging.basicConfig` to stderr with `WARNING` level.
+
+### CLI: per-page grouped output
+Output format changed from flat URL list to per-page grouped output. Each page shows its URL followed by indented discovered URLs. No cross-page deduplication — matches the brief's "for each page... print the URL and all the URLs it finds".
+
+### Service: streaming output via async generator
+Initially `crawl()` returned `list[CrawlerResult]` — the entire crawl had to finish before any output appeared. On real sites (e.g. books.toscrape.com with ~1000 pages) this meant ~60 seconds of silence. Changed to `AsyncIterator[CrawlerResult]` using a dual-queue pattern:
+
+- `url_queue` — URLs waiting to be fetched (workers consume)
+- `result_queue` — parsed results waiting to be yielded (caller consumes)
+- `None` sentinel signals all workers are done
+
+The CLI now uses `async for result in service.crawl(url)` and prints each page immediately. Workers continue discovering and fetching in the background while results stream to stdout.
+
+### Service: worker cancellation on unexpected errors
+`asyncio.gather` does **not** cancel sibling tasks when one raises an unhandled exception — they become orphaned coroutines. Added explicit `for t in worker_tasks: t.cancel()` in the `run_workers` `finally` block. This ensures all workers are cleaned up whether crawling completes normally or an unexpected error occurs.
+
+Found during code review — verified with a test using `asyncio.Event` synchronisation to confirm the slow worker actually receives `CancelledError`.
+
+### Parser: multi-attribute tag support
+Changed `_TAG_ATTRS` from `dict[str, str]` to `dict[str, list[str]]` to support tags with multiple URL-bearing attributes. Added `poster` for `<video>` (video thumbnail URL). The existing `seen` set handles deduplication when both attributes resolve to the same URL.
+
+## Limitations & Trade-offs
+
+### Bot blocking
+Some websites (e.g. StackOverflow, many Cloudflare-protected sites) block automated crawlers even with a legitimate `User-Agent` header. The current implementation handles this gracefully — `FetchError` is logged to stderr and the crawl continues to other pages. More sophisticated anti-bot measures (JavaScript challenges, CAPTCHAs, rate-based blocking) are out of scope for this project.
+
+### Unparsed URL attributes
+Compared against the WHATWG HTML standard, the following URL-bearing attributes are intentionally excluded:
+- **`srcset`** (`img`, `source`) — comma-separated entries with width/pixel-density descriptors (e.g. `image-480w.jpg 480w`). Requires dedicated parsing beyond simple attribute extraction.
+- **`action`** (`form`), **`formaction`** (`button`, `input`) — forms imply user interaction. Submitting without expected POST body could trigger server-side effects.
+- **`cite`** (`blockquote`, `del`, `ins`, `q`) — attribution metadata, not a navigable resource.
+- **`data`** (`object`) — legacy plugin content, rarely relevant in modern HTML.
+- **`href`** on `base` — changes URL resolution base for the document, not a resource URL itself.
+
+### Large binary responses
+`response.text` materialises the entire response body. For large binary files (PDFs, images) this is wasteful. A future optimisation: send a HEAD request to check `content-type` before fetching the full body. Deferred — not a blocker for correctness.
+
+### Single-domain constraint
+The crawler only follows links within the exact same hostname (not subdomains). `blog.example.com` is treated as external to `example.com`. This is by design per the brief, but could be made configurable.
+
+### Security considerations
+Crawled URLs are printed directly to stdout and stderr. The main attack vectors and their status:
+- **XSS**: Not applicable — no browser context, URLs are plain text output.
+- **SSRF**: Mitigated — `is_same_domain` prevents following links to internal IPs, localhost, or cloud metadata endpoints. The crawler only fetches URLs matching the start URL's hostname.
+- **Command/SQL injection**: Not applicable — URLs are never passed to shell commands or database queries.
+- **Scheme attacks** (`file:`, `javascript:`, `data:`): Mitigated — parser allowlists `http`/`https` only.
+- **Terminal escape injection**: Not mitigated — URLs containing ANSI escape sequences (e.g. `\x1b[2J`) are printed without sanitisation. A malicious page could craft HTML entity-encoded URLs that decode to terminal control characters. In practice, URL percent-encoding limits this, but BeautifulSoup's HTML entity decoding could produce raw escape bytes. A future fix: strip control characters (codepoints < 0x20 except `\t`, `\n`) before printing.
+
+### JavaScript-rendered content
+The crawler parses raw HTML without executing JavaScript. Pages that render content client-side (SPAs, React/Next.js CSR) will appear to have no links in their `<body>`. This is common with modern frameworks — the initial HTML is a shell and content is populated by JavaScript at runtime. Server-side rendered (SSR) pages may also return different HTML to the crawler vs a browser depending on User-Agent detection. Discovered during testing against a Next.js site (getharley.com) where the `<main>` tag was empty in the raw HTML.
+
+## Development Process
+
+### Methodology
+Strict TDD red-green-refactor throughout. Each feature starts with a failing test, then minimal implementation to make it pass, then cleanup. Code review after each implementation step catches issues early.
+
+### Tools
+- **IDE**: VSCode with Claude Code extension — AI-assisted pair programming
+- **AI collaboration**: Claude (Anthropic) used as a collaborative partner. The developer reviewed all code, challenged suggestions (e.g. false positive bug reports from code review), and made architectural decisions. AI was particularly useful for Python-specific idioms (async generators, Protocol types, pytest fixtures) given the developer's background in Java/Go/TypeScript.
+- **Domain knowledge**: Developer's existing knowledge of web standards (HTML tags, URL resolution, robots.txt) guided feature scope. AI explained Python-specific approaches (e.g. `asyncio.Queue` vs `asyncio.gather`, `urllib.robotparser` stdlib module).
+- **Library research**: Googling Python libraries (httpx, beautifulsoup4, pydantic-settings) to read official docs and understand capabilities before writing code.
+- **Verification**: `make all` (format + lint + typecheck + test) after every change. Code review skill (`/simple-code-reviewer`) before each commit to catch issues the automated tools miss.
+
+### TDD cycle in practice
+1. Write one test capturing the desired behaviour → run it → confirm it fails (red)
+2. Write minimal code to make it pass → run it → confirm it passes (green)
+3. Refactor if needed (extract helpers, rename for clarity)
+4. `make all` to verify nothing broke
+5. Repeat for next behaviour
+
+This approach caught several issues early:
+- First worker cancellation test passed immediately (wrong — it only tested exception propagation, not actual cancellation). Rewritten with `asyncio.Event` synchronisation to properly verify the slow worker was cancelled.
+- Parser indentation error when adding inner loop — caught by test failure before it could be committed.
