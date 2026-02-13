@@ -24,6 +24,23 @@ class TestExtractUrls:
         result = extract_urls(html, "https://example.com")
         assert result == ["https://example.com/app.js"]
 
+    def test_extracts_video_src(self):
+        html = '<html><body><video src="/video.mp4"></video></body></html>'
+        result = extract_urls(html, "https://example.com")
+        assert result == ["https://example.com/video.mp4"]
+
+    def test_extracts_video_poster(self):
+        html = (
+            "<html><body>"
+            '<video src="/video.mp4" poster="/thumb.jpg"></video>'
+            "</body></html>"
+        )
+        result = extract_urls(html, "https://example.com")
+        assert set(result) == {
+            "https://example.com/video.mp4",
+            "https://example.com/thumb.jpg",
+        }
+
     def test_extracts_urls_from_multiple_tag_types(self):
         html = """<html>
         <head><link href="/style.css" rel="stylesheet"></head>
