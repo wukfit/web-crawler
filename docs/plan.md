@@ -46,6 +46,30 @@ CLI (typer) → CrawlerService → HTTPClient (httpx) → HTMLParser (beautifuls
 - stderr logging config for crawler warnings
 - 2 unit tests (happy path with monkeypatched service, missing arg)
 
+### Step 5: Terminal Escape Injection Mitigation — DONE
+
+**Problem**: Crawled URLs are attacker-controlled. BeautifulSoup decodes HTML entities (e.g. `&#x1b;` → `\x1b`), so a malicious page can emit URLs carrying raw terminal control sequences (e.g. `\x1b[2J`). These reach the operator's terminal unsanitised via stdout (`cli.py` echo) and stderr (`service.py` warning logs), enabling screen-clearing, line-spoofing (`\n`/`\r`), and other escape-driven attacks.
+
+**Design decisions** (see `docs/decisions.md`):
+- Sanitise at the **print sites** (the sinks), not in the parser — crawl/dedup logic keeps operating on raw URLs.
+- Strip, don't escape — a URL containing control chars is already malformed/hostile.
+- **No `\t`/`\n`/`\r` carve-out** (stricter than the review's suggestion): output is one URL per line, whitespace in a valid URL is always percent-encoded, and `\n`/`\r` are line-spoofing primitives.
+
+**Scope**:
+- New leaf module `sanitise.py` — `strip_control_chars(s)` removes C0 (`\x00–\x1f`), DEL (`\x7f`), and C1 (`\x80–\x9f`).
+- `cli.py` — wrap both `typer.echo` sinks (`result.url`, each `link`).
+- `service.py` — sanitise `url`, `parent_url`, and `str(exc)` in both `logger.warning` calls.
+- **Out of scope**: `_validate_url` error messages — they echo the operator's own start URL, not remotely-discovered content.
+
+**Outcome**: A URL discovered on a crawled page can never deliver raw terminal control characters to the operator's terminal, on either stdout or stderr. A `CrawlerResult` URL printed to the terminal is always control-char-free.
+
+**Acceptance criteria**:
+- `strip_control_chars` removes all codepoints in `\x00–\x1f`, `\x7f`, `\x80–\x9f` (including `\x1b`, `\n`, `\r`, `\t`) and leaves an ordinary `http(s)` URL byte-for-byte unchanged.
+- Crawling a page whose link contains `\x1b[2J` produces stdout output with no `\x1b` byte; the URL's printable remainder still appears.
+- A failed fetch whose `FetchError` message contains a control char produces a `logger.warning` record with no control characters.
+- All three test layers pass: `tests/unit/test_sanitise.py` (contract), `test_cli.py` (stdout sink wired), `test_crawler_service.py` (stderr log sink wired).
+- No regression: full suite + `make all` (format + lint + typecheck + test) green.
+
 ## Process per step
 
 1. TDD: write test → red → implement → green → refactor

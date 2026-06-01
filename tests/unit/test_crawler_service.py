@@ -462,6 +462,26 @@ class TestCrawlerService:
             for r in caplog.records
         )
 
+    async def test_sanitises_control_chars_in_fetch_error_log(self, caplog):
+        class EscapingClient(FakeHttpClient):
+            async def fetch(self, url: str) -> HttpResponse:
+                if url == "https://example.com":
+                    return html_response(
+                        "https://example.com",
+                        '<a href="https://example.com/broken">Broken</a>',
+                    )
+                raise FetchError("connection failed \x1b[2J \x07")
+
+        service = CrawlerService(EscapingClient())
+
+        with caplog.at_level(logging.WARNING):
+            [r async for r in service.crawl("https://example.com")]
+
+        assert any("broken" in r.message for r in caplog.records)
+        for r in caplog.records:
+            assert "\x1b" not in r.message
+            assert "\x07" not in r.message
+
 
 class TestMaxDepth:
     async def test_stops_crawling_beyond_max_depth(self):
@@ -531,9 +551,7 @@ class TestMaxPages:
         responses: dict[str, HttpResponse] = {
             "https://example.com": html_response(
                 "https://example.com",
-                "".join(
-                    f'<a href="https://example.com/{i}">{i}</a>' for i in range(5)
-                ),
+                "".join(f'<a href="https://example.com/{i}">{i}</a>' for i in range(5)),
             ),
         }
         for i in range(5):
@@ -576,9 +594,7 @@ class TestMaxPages:
         responses: dict[str, HttpResponse] = {
             "https://example.com": html_response(
                 "https://example.com",
-                "".join(
-                    f'<a href="https://example.com/{i}">{i}</a>' for i in range(5)
-                ),
+                "".join(f'<a href="https://example.com/{i}">{i}</a>' for i in range(5)),
             ),
         }
         for i in range(5):

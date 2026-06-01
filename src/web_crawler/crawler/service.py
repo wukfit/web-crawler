@@ -11,6 +11,7 @@ from urllib.robotparser import RobotFileParser
 
 from web_crawler.crawler.parser import extract_urls, normalise_url
 from web_crawler.http.client import FetchError, HttpClient, HttpResponse
+from web_crawler.sanitise import strip_control_chars
 
 logger = logging.getLogger(__name__)
 
@@ -118,17 +119,17 @@ class CrawlerService:
                         except FetchError as exc:
                             logger.warning(
                                 "Failed to fetch %s (from %s): %s",
-                                url,
-                                parent_url,
-                                exc,
+                                strip_control_chars(url),
+                                strip_control_chars(parent_url),
+                                strip_control_chars(str(exc)),
                             )
                             continue
 
                         if response.status_code != 200:
                             logger.warning(
                                 "Skipping %s (from %s, HTTP %d)",
-                                url,
-                                parent_url,
+                                strip_control_chars(url),
+                                strip_control_chars(parent_url),
                                 response.status_code,
                             )
                             continue
