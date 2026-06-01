@@ -102,9 +102,7 @@ class TestCrawlIntegration:
         transport = make_site(pages)
         async with HttpxClient(transport=transport) as client:
             service = CrawlerService(client)
-            results = [
-                r async for r in service.crawl("https://site.test/0")
-            ]
+            results = [r async for r in service.crawl("https://site.test/0")]
 
         assert len(results) == 10
         urls = {r.url for r in results}

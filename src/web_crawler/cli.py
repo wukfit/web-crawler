@@ -11,6 +11,7 @@ from web_crawler.crawler.rate_limiter import TokenBucket
 from web_crawler.crawler.service import CrawlerService
 from web_crawler.http.client import HttpxClient
 from web_crawler.http.settings import HttpSettings
+from web_crawler.sanitise import strip_control_chars
 
 app = typer.Typer()
 
@@ -68,6 +69,6 @@ async def _crawl(
             if not first:
                 typer.echo()
             first = False
-            typer.echo(result.url)
+            typer.echo(strip_control_chars(result.url))
             for link in result.links:
-                typer.echo(f"  {link}")
+                typer.echo(f"  {strip_control_chars(link)}")

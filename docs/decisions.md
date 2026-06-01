@@ -147,6 +147,28 @@ Found during code review — verified with a test using `asyncio.Event` synchron
 ### Parser: multi-attribute tag support
 Changed `_TAG_ATTRS` from `dict[str, str]` to `dict[str, list[str]]` to support tags with multiple URL-bearing attributes. Added `poster` for `<video>` (video thumbnail URL). The existing `seen` set handles deduplication when both attributes resolve to the same URL.
 
+## 2026-06-01: Terminal Escape Injection Mitigation
+
+### Threat
+Crawled URLs are attacker-controlled. A malicious page can produce URLs carrying raw terminal control sequences (e.g. `\x1b[2J` to clear the screen, `\x07` bell) that reach the operator's terminal via stdout (`cli.py` echo) and stderr (`service.py` warning logs).
+
+The reachable vector is **literal raw control bytes** in the markup: `urljoin`/`urlparse`/`normalise_url` preserve them through extraction (only `\t`/`\r`/`\n` are stripped by `urlparse`'s WHATWG normalisation). Note that *entity-encoded* control characters (e.g. `&#x1b;`) are **not** a vector — BeautifulSoup drops them while decoding, so `x&#x1b;y` becomes `xy`. The same applies to `result.url`, which can carry control bytes from a redirect `Location` header via `response.url`.
+
+### Sanitise at the sinks, not in the parser
+`strip_control_chars` is applied where URLs are printed (`cli.py` echo, `service.py` `logger.warning`), not in `extract_urls`. This keeps crawl/dedup/`urljoin` logic operating on raw URLs — the threat is purely a *display* concern, so the fix lives at the display boundary. New module `sanitise.py` is the shared leaf dependency for both the CLI and service layers.
+
+### Strip, don't escape
+A URL containing control characters is already malformed/hostile, so we drop the bytes rather than render a visible `\xNN` form. Simpler, and nothing of value is lost.
+
+### Stricter than the review's suggestion: no `\t`/`\n`/`\r` carve-out
+The code review proposed keeping `\t`/`\n` (sensible for free-form log *messages*). But crawler output is **one URL per line**, and a valid URL never contains raw whitespace (it is percent-encoded). For the URL fields specifically, `urlparse` already removes `\t`/`\r`/`\n` during extraction — but the `FetchError` message interpolated into the same log line is *not* URL-parsed, so a literal `\n`/`\r` there could still forge or overwrite an output line. Stripping them at the sink with no carve-out closes that path uniformly. So we strip all C0 controls (`\x00–\x1f`), DEL (`\x7f`), and C1 controls (`\x80–\x9f`) — the latter two also covered because C1 bytes can carry terminal semantics on some emulators.
+
+### Out of scope: start-URL validation messages
+`_validate_url` echoes the operator's own start URL on error. That is local input, not remotely-discovered content, so it falls outside the threat model and is left unsanitised.
+
+### Coverage
+Three test layers: `test_sanitise.py` pins the codepoint contract; `test_cli.py` proves the stdout sink is wired; `test_crawler_service.py` proves the stderr log sink is wired — both for the `FetchError` message and, via a literal-control-byte href driven through the real extraction pipeline, for the `url`/`parent_url` fields.
+
 ## Limitations & Trade-offs
 
 ### Bot blocking
@@ -172,7 +194,7 @@ Crawled URLs are printed directly to stdout and stderr. The main attack vectors 
 - **SSRF**: Mitigated — `is_same_domain` prevents following links to internal IPs, localhost, or cloud metadata endpoints. The crawler only fetches URLs matching the start URL's hostname.
 - **Command/SQL injection**: Not applicable — URLs are never passed to shell commands or database queries.
 - **Scheme attacks** (`file:`, `javascript:`, `data:`): Mitigated — parser allowlists `http`/`https` only.
-- **Terminal escape injection**: Not mitigated — URLs containing ANSI escape sequences (e.g. `\x1b[2J`) are printed without sanitisation. A malicious page could craft HTML entity-encoded URLs that decode to terminal control characters. In practice, URL percent-encoding limits this, but BeautifulSoup's HTML entity decoding could produce raw escape bytes. A future fix: strip control characters (codepoints < 0x20 except `\t`, `\n`) before printing.
+- **Terminal escape injection**: Mitigated — see "2026-06-01: Terminal Escape Injection Mitigation" below. Crawled URLs are sanitised before reaching stdout/stderr.
 
 ### JavaScript-rendered content
 The crawler parses raw HTML without executing JavaScript. Pages that render content client-side (SPAs, React/Next.js CSR) will appear to have no links in their `<body>`. This is common with modern frameworks — the initial HTML is a shell and content is populated by JavaScript at runtime. Server-side rendered (SSR) pages may also return different HTML to the crawler vs a browser depending on User-Agent detection. Discovered during testing against a Next.js site (getharley.com) where the `<main>` tag was empty in the raw HTML.

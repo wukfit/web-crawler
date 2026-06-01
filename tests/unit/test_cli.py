@@ -41,6 +41,25 @@ class TestCli:
         assert lines[4] == "https://example.com/about"
         assert lines[5] == "  https://example.com"
 
+    def test_strips_terminal_escapes_from_output(self, monkeypatch):
+        async def malicious_crawl(
+            self: object, url: str
+        ) -> AsyncIterator[CrawlerResult]:
+            yield CrawlerResult(
+                url="https://example.com/\x1b[2Jpage",
+                links=("https://example.com/\x1b]0;pwned\x07link",),
+            )
+
+        monkeypatch.setattr("web_crawler.cli.CrawlerService.crawl", malicious_crawl)
+
+        result = runner.invoke(app, ["https://example.com"])
+
+        assert result.exit_code == 0
+        assert "\x1b" not in result.output
+        assert "\x07" not in result.output
+        # Printable remainder still shown.
+        assert "https://example.com/[2Jpage" in result.output
+
     def test_requires_url_argument(self):
         result = runner.invoke(app, [])
 
