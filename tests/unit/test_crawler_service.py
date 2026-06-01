@@ -482,6 +482,30 @@ class TestCrawlerService:
             assert "\x1b" not in r.message
             assert "\x07" not in r.message
 
+    async def test_sanitises_control_chars_in_logged_url(self, caplog):
+        # A literal control byte in an href survives extraction/urlparse (unlike
+        # entity-encoded ones, which BeautifulSoup drops), so it reaches the
+        # logged url/parent_url fields when the discovered page fails to fetch.
+        client = FakeHttpClient(
+            {
+                "https://example.com": html_response(
+                    "https://example.com",
+                    '<a href="https://example.com/x\x1by\x07">Evil</a>',
+                ),
+                # the discovered URL is missing → FetchError → logged
+            }
+        )
+        service = CrawlerService(client)
+
+        with caplog.at_level(logging.WARNING):
+            [r async for r in service.crawl("https://example.com")]
+
+        # The url field is sanitised: printable remainder present, controls gone.
+        assert any("https://example.com/xy" in r.message for r in caplog.records)
+        for r in caplog.records:
+            assert "\x1b" not in r.message
+            assert "\x07" not in r.message
+
 
 class TestMaxDepth:
     async def test_stops_crawling_beyond_max_depth(self):

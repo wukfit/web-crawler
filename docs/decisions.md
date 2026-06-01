@@ -150,7 +150,9 @@ Changed `_TAG_ATTRS` from `dict[str, str]` to `dict[str, list[str]]` to support 
 ## 2026-06-01: Terminal Escape Injection Mitigation
 
 ### Threat
-Crawled URLs are attacker-controlled. BeautifulSoup decodes HTML entities (e.g. `&#x1b;` → `\x1b`), so a malicious page can produce URLs carrying raw terminal control sequences (e.g. `\x1b[2J` to clear the screen, `\r`/`\n` to spoof output lines). These reach the operator's terminal via stdout (`cli.py` echo) and stderr (`service.py` warning logs).
+Crawled URLs are attacker-controlled. A malicious page can produce URLs carrying raw terminal control sequences (e.g. `\x1b[2J` to clear the screen, `\x07` bell) that reach the operator's terminal via stdout (`cli.py` echo) and stderr (`service.py` warning logs).
+
+The reachable vector is **literal raw control bytes** in the markup: `urljoin`/`urlparse`/`normalise_url` preserve them through extraction (only `\t`/`\r`/`\n` are stripped by `urlparse`'s WHATWG normalisation). Note that *entity-encoded* control characters (e.g. `&#x1b;`) are **not** a vector — BeautifulSoup drops them while decoding, so `x&#x1b;y` becomes `xy`. The same applies to `result.url`, which can carry control bytes from a redirect `Location` header via `response.url`.
 
 ### Sanitise at the sinks, not in the parser
 `strip_control_chars` is applied where URLs are printed (`cli.py` echo, `service.py` `logger.warning`), not in `extract_urls`. This keeps crawl/dedup/`urljoin` logic operating on raw URLs — the threat is purely a *display* concern, so the fix lives at the display boundary. New module `sanitise.py` is the shared leaf dependency for both the CLI and service layers.
@@ -159,13 +161,13 @@ Crawled URLs are attacker-controlled. BeautifulSoup decodes HTML entities (e.g. 
 A URL containing control characters is already malformed/hostile, so we drop the bytes rather than render a visible `\xNN` form. Simpler, and nothing of value is lost.
 
 ### Stricter than the review's suggestion: no `\t`/`\n`/`\r` carve-out
-The code review proposed keeping `\t`/`\n` (sensible for free-form log *messages*). But crawler output is **one URL per line**, and a valid URL never contains raw whitespace (it is percent-encoded). Keeping `\n`/`\r` would *preserve* a line-spoofing vector (inject `\nhttps://trusted.com` to forge a discovered URL). So we strip all C0 controls (`\x00–\x1f`), DEL (`\x7f`), and C1 controls (`\x80–\x9f`) with no carve-outs — the latter two also covered because C1 bytes can carry terminal semantics on some emulators.
+The code review proposed keeping `\t`/`\n` (sensible for free-form log *messages*). But crawler output is **one URL per line**, and a valid URL never contains raw whitespace (it is percent-encoded). For the URL fields specifically, `urlparse` already removes `\t`/`\r`/`\n` during extraction — but the `FetchError` message interpolated into the same log line is *not* URL-parsed, so a literal `\n`/`\r` there could still forge or overwrite an output line. Stripping them at the sink with no carve-out closes that path uniformly. So we strip all C0 controls (`\x00–\x1f`), DEL (`\x7f`), and C1 controls (`\x80–\x9f`) — the latter two also covered because C1 bytes can carry terminal semantics on some emulators.
 
 ### Out of scope: start-URL validation messages
 `_validate_url` echoes the operator's own start URL on error. That is local input, not remotely-discovered content, so it falls outside the threat model and is left unsanitised.
 
 ### Coverage
-Three test layers: `test_sanitise.py` pins the codepoint contract; `test_cli.py` proves the stdout sink is wired; `test_crawler_service.py` proves the stderr log sink (including the `FetchError` message, which embeds the URL) is wired.
+Three test layers: `test_sanitise.py` pins the codepoint contract; `test_cli.py` proves the stdout sink is wired; `test_crawler_service.py` proves the stderr log sink is wired — both for the `FetchError` message and, via a literal-control-byte href driven through the real extraction pipeline, for the `url`/`parent_url` fields.
 
 ## Limitations & Trade-offs
 
